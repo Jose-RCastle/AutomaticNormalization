@@ -10,7 +10,11 @@
     "api": "node --env-file-if-exists=.env --import tsx server/index.ts",
     "test:engine": "node --import tsx --test tests/*.test.ts",
     "dev": "concurrently -k \"npm run api\" \"npm start -- --host 0.0.0.0 --proxy-config proxy.conf.json\"",
-    "typecheck:api": "tsc --project server/tsconfig.json --noEmit"
+    "typecheck:api": "tsc --project server/tsconfig.json --noEmit",
+    "format": "prettier --write src server tests scripts docs README.md package.json angular.json \"tsconfig*.json\" playwright.config.ts",
+    "format:check": "prettier --check src server tests scripts docs README.md package.json angular.json \"tsconfig*.json\" playwright.config.ts",
+    "sample:large": "node scripts/generate-large-sql.mjs",
+    "test:e2e": "playwright test"
   },
   "private": true,
   "packageManager": "npm@11.9.0",
@@ -21,23 +25,24 @@
     "@angular/forms": "^22.2.0",
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
     "express": "5.1.0",
-    "mssql": "12.1.0"
+    "mssql": "12.1.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
     "@angular/build": "^22.2.4",
     "@angular/cli": "^22.2.4",
     "@angular/compiler-cli": "^22.2.0",
+    "@playwright/test": "1.64.1",
+    "@types/express": "5.0.3",
+    "@types/mssql": "9.1.8",
+    "concurrently": "9.2.1",
     "jsdom": "^30.0.0",
     "prettier": "^3.8.1",
-    "typescript": "~6.0.2",
-    "vitest": "^5.0.0",
     "tsx": "4.20.6",
-    "concurrently": "9.2.1",
-    "@types/express": "5.0.3",
-    "@types/mssql": "9.1.8"
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.0"
   },
   "engines": {
     "node": "^24.15.0"

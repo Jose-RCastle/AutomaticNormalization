@@ -1,0 +1,3 @@
+{
+  "dbo.InscripcionesExtendidas": "EstudianteId -> EstudianteNombre, Matricula, Correo, CarreraId\nMatricula -> EstudianteId\nCarreraId -> CarreraNombre, FacultadId\nFacultadId -> FacultadNombre, Decano\nSeccionId -> AsignaturaId, DocenteId, AulaId, PeriodoId, Horario\nAsignaturaId -> AsignaturaNombre, Creditos\nDocenteId -> DocenteNombre, Especialidad\nAulaId -> AulaNombre, Capacidad, EdificioId\nEdificioId -> EdificioNombre, Direccion\nPeriodoId -> PeriodoNombre, Inicio, Fin\nEstudianteId, SeccionId -> BecaId, FechaInscripcion, NotaFinal, Estado, Observaciones\nBecaId -> BecaNombre, Porcentaje"
+}

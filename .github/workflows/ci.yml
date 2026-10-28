@@ -14,3 +14,6 @@ jobs:
       - run: npm test -- --watch=false
       - run: npm run typecheck:api
       - run: npm run build
+      - run: npm run format:check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

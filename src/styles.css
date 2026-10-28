@@ -1,1 +1,131 @@
-*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#182927;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;font-size:14px}button,input,textarea,select{font:inherit}button,select{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #d39b29;outline-offset:3px}button:disabled{opacity:.45;cursor:not-allowed}button{border:1px solid #d8e0dc;border-radius:8px;padding:11px 15px;background:white;color:#244b40;font-weight:600}button.primary{background:#17664f;color:white;border-color:#17664f}button:hover:not(:disabled){filter:brightness(.95)}code,textarea.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}label{display:block;font-weight:600;font-size:12px;margin:18px 0 9px}textarea,select{width:100%;border:1px solid #d9e1dd;border-radius:8px;background:#fbfcfc;padding:12px;color:#233d35}textarea{resize:vertical;min-height:245px;font-size:12px;line-height:1.8}select{min-height:43px}
+:root {
+  color-scheme: light;
+  --ink: #20372f;
+  --muted: #61796c;
+  --green: #17634c;
+  --line: #dce5df;
+  --surface: #ffffff;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: #f3f6f3;
+  color: var(--ink);
+  font:
+    14px/1.6 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button,
+select,
+summary {
+  cursor: pointer;
+}
+button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 15px;
+  background: white;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 650;
+}
+button:hover:not(:disabled) {
+  background: #edf5ef;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+button.primary {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+button.primary:hover:not(:disabled) {
+  background: #104a38;
+}
+input,
+select,
+textarea {
+  border: 1px solid #cddbd1;
+  background: #fbfdfb;
+  border-radius: 7px;
+  padding: 10px;
+  color: var(--ink);
+  width: 100%;
+}
+input[type='checkbox'] {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  accent-color: var(--green);
+}
+input[type='file'] {
+  font-size: 12px;
+  padding: 8px;
+}
+select[multiple] {
+  min-height: 130px;
+}
+textarea {
+  resize: vertical;
+  font-size: 12px;
+  line-height: 1.8;
+}
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 15px 0 7px;
+}
+code,
+.code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+:focus-visible {
+  outline: 3px solid #bf8d30;
+  outline-offset: 3px;
+}
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+h2 {
+  font-size: 18px;
+}
+h3 {
+  font-size: 14px;
+}
+h4 {
+  font-size: 12px;
+}
+summary {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--green);
+}
+details[open] > summary {
+  margin-bottom: 15px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
