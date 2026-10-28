@@ -1,0 +1,37 @@
+<header><a class="brand" href="#"><span class="mark">N</span> Normaliza<span class="muted">DB</span></a><span class="tag">SQL SERVER · 1FN → 3FN</span></header>
+<main>
+  <section class="hero"><div class="eyebrow">LABORATORIO DE BASES DE DATOS</div><h1>De tablas complejas<br>a relaciones claras.</h1><p>Explora tu esquema, declara sus reglas y construye un modelo normalizado paso a paso.</p></section>
+  <div class="steps"><span><b>01</b> Importar esquema</span><span><b>02</b> Definir y analizar</span><span><b>03</b> Visualizar y exportar</span></div>
+  @if (error) { <div class="alert error" role="alert">{{ error }}</div> }
+  @if (notice) { <div class="alert" role="status">{{ notice }}</div> }
+  <div class="workspace">
+    <section class="panel input"><div class="section-heading"><h2><span>01</span> Tu esquema</h2><button class="text" (click)="loadSample()">Cargar ejemplo ↗</button></div>
+      <p class="hint">Importa sentencias CREATE TABLE de SQL Server. Máximo 12 columnas por tabla.</p>
+      <label class="upload">↑ Seleccionar archivo .sql<input type="file" accept=".sql,text/plain" (change)="upload($event)"></label>
+      <label for="sql">O pega tu SQL</label><textarea id="sql" class="code" [(ngModel)]="sql" spellcheck="false" placeholder="CREATE TABLE ..."></textarea>
+      <div class="actions"><button class="primary" (click)="importSQL()" [disabled]="!sql.trim()">Analizar archivo</button><button (click)="connect()" [disabled]="busy">{{ busy ? 'Conectando…' : 'Importar de SQL Server' }}</button></div>
+      <p class="hint">SQL Server requiere configuración en la API. Las credenciales nunca se solicitan en el navegador.</p>
+      @if (tables.length) { <label for="table">Tabla de trabajo</label><select id="table" [ngModel]="selected" (ngModelChange)="choose(+$event)">@for(t of tables; track t.name; let i = $index) { <option [value]="i">{{t.name}}</option> }</select>
+      <div class="schema-list">@for(c of table.columns; track c.name) { <div><span>{{ table.primaryKey.includes(c.name) ? '◆' : '·' }} {{c.name}}</span><code>{{c.type}}</code></div> }</div> }
+    </section>
+    <section class="panel"><div class="section-heading"><h2><span>02</span> Reglas y diagnóstico</h2><span class="pill">DEPENDENCIAS</span></div>
+      @if (table) {
+        <p class="hint">Añade reglas del negocio, una por línea. La clave primaria ya determina todos los atributos.</p>
+        @if(target === '1FN') { <label for="group">Columnas del grupo repetido, separadas por comas</label><input id="group" class="group-input" [(ngModel)]="group" (ngModelChange)="invalidate()" placeholder="Telefono1, Telefono2"><p class="hint">También puedes extraer una columna con una lista. El resultado es un esquema padre/hija con Valor y Posicion; la separación y migración de valores requiere revisión.</p> }
+        <label for="fds">Dependencias funcionales</label><textarea id="fds" class="code rules" [(ngModel)]="rules" spellcheck="false" placeholder="ClienteId -> ClienteNombre"></textarea>
+        <label class="check"><input type="checkbox" [(ngModel)]="atomic" (change)="invalidate()">{{ target === '1FN' ? 'Confirmo que los valores fuera del grupo indicado son atómicos y que cada valor del grupo será atómico en la relación hija.' : 'Confirmo valores atómicos, sin listas ni grupos repetidos (1FN).' }}</label>
+        <label class="check"><input type="checkbox" [(ngModel)]="complete" (change)="invalidate()">Las dependencias declaradas describen las reglas del negocio, incluidas las claves alternativas.</label>
+        <div class="actions"><select aria-label="Forma normal objetivo" [(ngModel)]="target" (ngModelChange)="invalidate()"><option>1FN</option><option>2FN</option><option>3FN</option></select><button class="primary" (click)="run()">Normalizar →</button></div>
+        @if (report) { <div class="diagnosis"><span>FORMA NORMAL ACTUAL</span><strong>{{report.form}}</strong><p>Claves candidatas: @for(k of report.keys; track $index) { <code>({{k.join(', ')}}) </code> }</p></div>
+          @if(report.partial.length) { <h3>Dependencias parciales</h3>@for(f of report.partial.slice(0, 8); track $index) { <p class="dependency">{{f.left.join(', ')}} → {{f.right.join(', ')}}</p> } }
+          @if(report.transitive.length) { <h3>Violaciones de 3FN</h3>@for(f of report.transitive.slice(0, 8); track $index) { <p class="dependency">{{f.left.join(', ')}} → {{f.right.join(', ')}}</p> } }
+        }
+      } @else { <div class="empty"><span>⌘</span><h3>Cada relación empieza con una regla.</h3><p>Importa tu esquema o carga el ejemplo para explorar las dependencias entre sus atributos.</p></div> }
+    </section>
+  </div>
+  <section class="panel output"><div class="section-heading"><h2><span>03</span> Modelo normalizado</h2><div class="actions"><button (click)="download('svg')" [disabled]="!results.length">Diagrama .svg ↓</button><button (click)="download('mmd')" [disabled]="!results.length">Diagrama .mmd ↓</button><button (click)="download('json')" [disabled]="!results.length">Esquema .json ↓</button><button class="primary" (click)="download('sql')" [disabled]="!results.length">Script .sql ↓</button></div></div>
+    @if(results.length) { <img class="diagram" [src]="diagramUrl" alt="Diagrama de entidades normalizadas y relaciones de claves foráneas"><details><summary>Ver detalle de columnas</summary><div class="model">@for(t of results; track t.name) { <article class="entity"><h3>{{t.name}}</h3>@for(c of t.columns; track c.name) { <div><span [class.key]="t.primaryKey.includes(c.name)">{{t.primaryKey.includes(c.name) ? 'PK ' : ''}}{{c.name}}</span><code>{{c.type}}</code></div> }</article> }</div></details><div class="relations"><h3>Relaciones entre entidades</h3>@for(r of relations(); track $index) { <p>↳ {{r}}</p> } @empty { <p>No hay claves foráneas entre las relaciones resultantes.</p> }</div><p class="hint">Cuando se selecciona 3FN, la síntesis preserva las dependencias declaradas y permite una reunión sin pérdida bajo esas reglas. Las tarjetas muestran entidades y la lista muestra sus enlaces. El archivo Mermaid permite representar el diagrama fuera de la aplicación.</p> }
+    @else { <div class="empty compact">Tu modelo aparecerá aquí después del análisis.</div> }
+  </section>
+  <footer>Normalización automatizada · Administración de Bases de Datos II <span>DDL compatible: CREATE TABLE, PRIMARY KEY y FOREIGN KEY. Sin transformación de datos.</span></footer>
+</main>
