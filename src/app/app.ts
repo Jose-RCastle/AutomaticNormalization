@@ -1,3 +1,4 @@
+import { assembleProject } from '../lib/project';
 import { ChangeDetectorRef, Component, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -48,7 +49,7 @@ export class App implements OnDestroy {
   tables: Table[] = [];
   selected = '';
   search = '';
-  section: 'import' | 'work' | 'result' = 'import';
+  section: 'import' | 'work' | 'result' | 'project' = 'import';
   importResult: ImportResult | null = null;
   error = '';
   notice = '';
@@ -82,6 +83,49 @@ export class App implements OnDestroy {
   }
   get hasImportErrors() {
     return !!this.importResult?.diagnostics.some((d) => d.level === 'error');
+  }
+
+  get project() {
+    return assembleProject(
+      this.tables,
+      new Map([...this.workspaces].map(([name, workspace]) => [name, workspace.results])),
+    );
+  }
+  get projectDiagram() {
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(exportSVG(this.project.tables));
+  }
+  downloadProject(kind: 'sql' | 'svg' | 'mmd' | 'json') {
+    const project = this.project;
+    if (!project.tables.length) return;
+    if (kind !== 'json' && project.errors.length) {
+      this.error =
+        'Resuelve las referencias del proyecto antes de exportar. Puedes descargar el informe JSON para revisarlas.';
+      return;
+    }
+    const content =
+      kind === 'sql'
+        ? exportSQL(project.tables)
+        : kind === 'svg'
+          ? exportSVG(project.tables)
+          : kind === 'mmd'
+            ? exportMermaid(project.tables)
+            : JSON.stringify(
+                {
+                  ...project,
+                  analyses: this.tables.map((table) => ({
+                    table: table.name,
+                    ...this.workspaces.get(table.name),
+                  })),
+                  limitations: [
+                    'Estructuras vacías; no migra datos.',
+                    'Las tablas pendientes conservan su estructura original.',
+                    'Diagnóstico relativo a las reglas y atomicidad confirmadas.',
+                  ],
+                },
+                null,
+                2,
+              );
+    this.save(content, `proyecto-normalizacion.${kind}`);
   }
 
   choose(name: string) {

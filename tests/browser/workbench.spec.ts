@@ -107,3 +107,31 @@ test('cancelación real conserva la tabla previa y recuperación sin clave', asy
   await page.getByRole('button', { name: 'Analizar tablas' }).click();
   await expect(page.locator('.table-title h2')).toHaveText('DetallePedido');
 });
+
+test('proyecto completo: conserva pendientes, reubica referencias y descarga el SQL conjunto', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByText('Pegar SQL manualmente').click();
+  await page
+    .locator('#sql')
+    .fill(
+      'CREATE TABLE Padre(Id INT PRIMARY KEY, Nombre VARCHAR(40)); CREATE TABLE Hijo(Id INT PRIMARY KEY, PadreId INT REFERENCES Padre(Id));',
+    );
+  await page.getByRole('button', { name: 'Importar texto SQL' }).click();
+  await page.getByRole('checkbox').nth(0).check();
+  await page.getByRole('checkbox').nth(1).check();
+  await page.getByRole('button', { name: 'Analizar y normalizar' }).click();
+  await page.getByRole('button', { name: 'Proyecto completo' }).click();
+  await expect(page.locator('.project-model')).toContainText('1 / 2 tablas analizadas');
+  await expect(page.locator('.project-model')).toContainText(
+    'Hijo: conserva la estructura original',
+  );
+  await expect(page.locator('.project-diagram')).toHaveJSProperty('naturalWidth', 1060);
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'SQL del proyecto' }).click();
+  const download = await pending;
+  const sql = readFileSync((await download.path())!, 'utf8');
+  expect(sql).toContain('CREATE TABLE [Hijo]');
+  expect(sql).toContain('REFERENCES [Padre_3FN_1] ([Id])');
+});

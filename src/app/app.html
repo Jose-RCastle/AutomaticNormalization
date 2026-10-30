@@ -3,7 +3,7 @@
     ><span class="brand-mark">N</span>Normaliza<span>DB</span></a
   >
   <span class="course">Administración de Bases de Datos II</span>
-  <span class="local-badge">● Análisis local · SQL Server</span>
+  <span class="local-badge">● Sin IA · Algoritmos locales</span>
 </header>
 <main>
   <div class="page-heading">
@@ -37,6 +37,13 @@
       [disabled]="!workspace?.results?.length"
     >
       <span>03</span> Modelo y exportación
+    </button>
+    <button
+      [class.active]="section === 'project'"
+      (click)="section = 'project'"
+      [disabled]="!tables.length"
+    >
+      <span>04</span> Proyecto completo
     </button>
   </nav>
   @if (error) {
@@ -174,7 +181,7 @@
       </div>
     </details>
   }
-  @if (section !== 'import' && tables.length) {
+  @if ((section === 'work' || section === 'result') && tables.length) {
     <div class="workbench">
       <aside class="panel table-browser">
         <div class="section-heading">
@@ -570,6 +577,60 @@
         }
       }
     </div>
+  }
+  @if (section === 'project' && tables.length) {
+    @let model = project;
+    <section class="panel project-model">
+      <div class="section-heading">
+        <h2>Modelo del proyecto completo</h2>
+        <span class="pill">{{ model.completed }} / {{ tables.length }} tablas analizadas</span>
+      </div>
+      <p class="hint">
+        Reúne las descomposiciones calculadas y las tablas originales pendientes. Las referencias
+        externas se conservan solo cuando su destino es inequívoco. Cada tabla mantiene sus propias
+        reglas y forma objetivo.
+      </p>
+      @if (model.warnings.length) {
+        <details open>
+          <summary>Tablas pendientes ({{ model.warnings.length }})</summary>
+          @for (warning of model.warnings; track $index) {
+            <p class="hint">{{ warning }}</p>
+          }
+        </details>
+      }
+      @if (model.errors.length) {
+        <div class="message error" role="alert">
+          <strong>Revisión requerida antes de exportar</strong>
+          @for (error of model.errors; track $index) {
+            <p>{{ error }}</p>
+          }
+        </div>
+      }
+      <div class="diagram-scroll">
+        <img
+          class="project-diagram"
+          [src]="projectDiagram"
+          alt="Modelo entidad relación de todas las tablas del proyecto"
+        />
+      </div>
+      <div class="exports">
+        <button class="primary" (click)="downloadProject('sql')" [disabled]="!!model.errors.length">
+          SQL del proyecto ↓
+        </button>
+        <button (click)="downloadProject('svg')" [disabled]="!!model.errors.length">
+          SVG del proyecto ↓
+        </button>
+        <button (click)="downloadProject('mmd')" [disabled]="!!model.errors.length">
+          Mermaid del proyecto ↓
+        </button>
+        <button (click)="downloadProject('json')">Informe del proyecto ↓</button>
+      </div>
+      <p class="export-note">
+        El script genera estructuras vacías. Las tablas pendientes no se presentan como
+        normalizadas. Revisa el informe, las restricciones omitidas y las reglas antes de ejecutar
+        el SQL.
+      </p>
+    </section>
   }
   <footer>
     <span>NormalizaDB · Un espacio para aprender normalización</span
