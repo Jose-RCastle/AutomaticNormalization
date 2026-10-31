@@ -9,7 +9,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci
+      - run: npm run setup:sql
+      - run: npm run test:sql
       - run: npm run test:engine
       - run: npm test -- --watch=false
       - run: npm run typecheck:api

@@ -1,114 +1,77 @@
-# NormalizaDB
+# NormalizaDB · normalización automática con SQLGlot
 
-Aplicación de estudio para **importar esquemas SQL Server, explicar sus dependencias y preparar estructuras en 1FN, 2FN o 3FN**. Angular 22 + TypeScript 6 en el cliente; Node.js 24 + Express en la API opcional.
+Aplicación web sin IA para el Proyecto I de Administración de Bases de Datos II. **Carga un SQL → analiza todas sus tablas → compara 1FN, 2FN y 3FN → descarga estructuras y diagramas.** No hay que configurar cada tabla ni confirmar casillas antes del análisis.
 
-## Probar en tu PC
+## Ejecutar
 
-Instala Node.js **24.15 o posterior de la rama 24**. Desde la carpeta del repositorio:
+Requiere Node.js **24.15+ de la rama 24**, npm y **Python 3.10+**:
 
 ```sh
 npm ci
+npm run setup:sql
 npm run dev
 ```
 
-Abre `http://localhost:4200` en tu navegador. Para detener ambos servidores, pulsa `Ctrl+C` en la terminal. La API escucha en `127.0.0.1:3001` y Angular redirige `/api` mediante `proxy.conf.json`.
+Angular escucha en el puerto 4200 y redirige `/api` al servidor Express en 127.0.0.1:3001. SQLGlot se instala en `.venv` con versión fijada. `SQLGLOT_PYTHON` permite indicar otro ejecutable Python con esa dependencia instalada. Los comandos se ejecutan desde la raíz del repositorio. `Ctrl+C` detiene ambos servidores. No es una configuración de producción.
 
-No necesitas SQL Server para cargar archivos, practicar ni exportar. `npm run build` genera el cliente en `dist/normalization-workbench/browser`. El servidor de desarrollo no es un despliegue de producción: ese despliegue requiere alojamiento del cliente, proxy y autenticación según el contexto.
+## Probar el ejemplo de clase
 
-## Prepararse para la presentación
+1. Pulsa **Probar PARCELAS de clase**. El archivo es `examples/parcelas.sql`.
+2. El diagnóstico identifica 1FN: hay una dependencia parcial respecto de la clave candidata `(NombreMunicipio, NumeroParcela)`, aunque la clave principal `IdPropiedad` sea simple.
+3. Selecciona **2FN**: aparecen PARCELAS1 (`IdPropiedad, NombreMunicipio, NumeroParcela, Area, Precio`) y PARCELAS2 (`NombreMunicipio, Impuestos`). Los nombres generados incluyen la etapa y un número.
+4. Selecciona **3FN**: `Area → Precio` produce otra relación. Quedan las estructuras equivalentes a PARCELAS1A, PARCELAS1B y PARCELAS2 de las diapositivas.
+5. Descarga SQL, SVG, Mermaid o el informe JSON con reglas, supuestos y todas las etapas.
 
-1. Pulsa **Caso universitario**: carga 12 tablas, una relación desnormalizada de 34 atributos y las dependencias documentadas del ejemplo.
-2. En el explorador, revisa `dbo.InscripcionesExtendidas`. Ya contiene las reglas, pero las confirmaciones son manuales para practicar su justificación.
-3. Confirma atomicidad y completitud de las dependencias. Selecciona 3FN y pulsa **Analizar y normalizar**.
-4. Revisa las claves candidatas, los motivos del diagnóstico y el diagrama. Descarga SQL, SVG, Mermaid, JSON o el informe del análisis.
-5. Regresa a otra tabla. Cada una conserva sus reglas, confirmaciones y resultados mientras la página permanece abierta.
-6. Para practicar 1FN, usa `dbo.ContactosEmergencia`, selecciona 1FN y el grupo `Telefono1`, `Telefono2`, `Telefono3`.
+## Qué significa automático
 
-Los archivos están en [examples](examples): `caso-universidad.sql` y `caso-universidad.reglas.json`. El archivo SQL incluye sentencias de datos como las que pueden acompañar una exportación, pero **no se ejecutan ni se utilizan para inferir dependencias**.
+SQLGlot interpreta T-SQL en el servidor. El motor relacional calcula claves candidatas, dependencias parciales y violaciones de 3FN; genera las tres etapas sin intervención por tabla. La interfaz explica los cuatro prerrequisitos: semántica, redundancia, NULL y reunión sin pérdida.
 
-Puedes generar un archivo de práctica de unos 20 MiB sin aumentar el tamaño del repositorio:
+La app distingue tres fuentes de conocimiento:
 
-```sh
-npm run sample:large
-# Tamaño personalizado y otra ruta (no sobrescribe archivos existentes):
-npm run sample:large -- practica.sql 40
-```
+- **Claves del esquema:** PRIMARY KEY y UNIQUE NOT NULL generan dependencias declaradas.
+- **Reglas del dominio:** el propio SQL puede transportar comentarios opcionales `-- @fd Tabla: A, B -> C`. El ejemplo PARCELAS incluye las reglas enseñadas en clase. No son reglas inferidas por nombre ni IA. Las columnas se validan y se contrastan con los INSERT presentes.
+- **Muestra de registros:** si no hay reglas @fd, los INSERT literales permiten descubrir dependencias empíricas. Solo se consideran determinantes con repetición y al menos dos valores distintos; se excluyen NULL, constantes y determinantes únicos en la muestra. La búsqueda está limitada a determinantes de hasta tres atributos y tablas de hasta 16 columnas. El informe las identifica como **hipótesis**, no como restricciones universales.
 
-## Trabajar con un SQL desconocido
+**Ninguna librería puede deducir toda la semántica, la atomicidad o las dependencias funcionales del negocio a partir de cualquier archivo SQL.** Con solo DDL, el diagnóstico queda expresamente condicionado a las claves disponibles; no certifica la 3FN real. Las reglas ausentes pueden cambiar el resultado. Con datos, una dependencia accidental tampoco prueba una regla válida para filas futuras.
 
-- Arrastra o selecciona un archivo **.sql de hasta 50 MiB**, en UTF-8 o UTF-16 con BOM. También puedes pegar SQL.
-- El lector funciona en un **Web Worker** para mantener la interfaz disponible. Puedes cancelar; se termina el trabajador y se conserva el proyecto anterior. Una importación fallida tampoco reemplaza el trabajo existente.
-- Revisa el **informe de importación**: muestra errores por tabla y línea, omisiones y referencias externas. Las tablas válidas siguen disponibles si otra tiene errores. Las tablas reconocidas con estructura incierta quedan bloqueadas para normalización.
-- Busca una tabla, revisa sus columnas y selecciona una clave de trabajo si no tiene PRIMARY KEY. Es una decisión explícita del estudiante; no se inventa a partir de nombres.
-- Añade dependencias escribiéndolas o usando el constructor de columnas. La clave primaria y las claves UNIQUE **no nulas** determinan los demás atributos. Las claves UNIQUE con columnas que admiten NULL no se tratan como claves relacionales.
-- El SQL **no demuestra atomicidad ni reglas semánticas**. Debes conocer o consultar las reglas del negocio para confirmar un diagnóstico. El resultado es relativo a esas reglas, no una garantía sobre datos desconocidos.
-- Guarda las reglas como JSON antes de cerrar o reimportar. Puedes cargarlas después sobre el mismo esquema. Se conserva el trabajo por tabla en memoria, no automáticamente después de cerrar la página. Una nueva importación reemplaza los espacios de trabajo.
+## Primera forma normal
 
-Una dependencia tiene este formato:
+Los grupos del mismo tipo y con sufijos numerados (por ejemplo `Telefono1, Telefono2`) se extraen automáticamente como una propuesta: relación padre más relación hija con la clave del padre, `Posicion` y `Valor`. Se amplía la clave hija, y se informa del supuesto utilizado. La numeración por sí sola no demuestra la semántica.
 
-```text
-ClienteId -> ClienteNombre, Correo
-PedidoId, ProductoId -> Cantidad
-```
+No se separan cadenas por comas sin conocer su dominio: una dirección o un decimal no son necesariamente listas. Si los INSERT contienen posibles listas (`;`, `,`, `|`), se bloquea la transformación y se pide aclarar esos valores en el SQL. No hay interpretación automática de relaciones anidadas arbitrarias, JSON ni grupos compuestos (por ejemplo pares Producto1/Cantidad1): requieren describir su estructura atómica. Las operaciones generan **estructuras**, no transforman filas.
 
-Los nombres se resuelven sin distinguir mayúsculas. Usa corchetes para nombres especiales: `[Nombre, apellido]`. El archivo de reglas es un objeto JSON con el nombre exacto de cada tabla como clave y el texto de dependencias como valor; hay un ejemplo en `examples/caso-universidad.reglas.json`.
+## SQL admitido y límites
 
-### Transformaciones
+- CREATE TABLE con tipos explícitos, restricciones PRIMARY KEY, UNIQUE, FOREIGN KEY; ALTER TABLE ADD de columnas y restricciones; GO aislado, USE y SET.
+- INSERT VALUES de literales y NULL, con lista opcional de columnas. Se leen para perfilar, **jamás se ejecutan**.
+- Hasta 50 MiB de entrada, 1000 tablas, 256 columnas y 5000 filas literales por tabla. No se truncan filas silenciosamente. Procesos y trabajos tienen un tiempo máximo de 60 segundos; la búsqueda relacional tiene un presupuesto de 25000 combinaciones.
+- Las expresiones en INSERT, INSERT SELECT, cambios destructivos y sentencias no soportadas se rechazan. Si SQLGlot no puede interpretar una sentencia, no se vuelve al lector manual para aparentar éxito.
+- Se informa de restricciones no trasladadas como DEFAULT/CHECK. La exportación no preserva índices, triggers, collation ni todo el comportamiento original. No migra registros ni elimina NULL para ocultarlos. Las columnas omitidas de INSERT se consideran desconocidas; en NOT NULL bloquean el análisis aunque exista un valor por defecto.
+- Una tabla sin clave declarada utilizable se bloquea; no se inventa una clave a partir de filas casualmente únicas.
+- La exportación conjunta reubica referencias externas solo cuando el destino es inequívoco. Errores de claves, nombres o referencias bloquean SQL y diagramas exportados; el informe JSON siempre permite revisar el problema. Las tablas bloqueadas no se presentan como normalizadas.
 
-- **1FN:** extrae un grupo repetido declarado por el usuario a una relación hija con la clave del padre, `Posicion` y `Valor`. Las columnas del grupo deben compartir tipo y quedar fuera de la clave. No divide ni migra las filas: el usuario debe cargar cada valor atómico en su fila. Confirma la atomicidad de los atributos restantes y de los futuros valores.
-- **2FN:** encuentra dependencias parciales respecto de todas las claves candidatas y descompone mediante pasos binarios de reunión sin pérdida. No promete preservar todas las dependencias en 2FN.
-- **3FN:** usa una cubierta mínima, elimina relaciones contenidas e incluye una clave candidata. Bajo las reglas declaradas, la síntesis preserva dependencias y admite reunión sin pérdida.
+Las garantías de reunión sin pérdida (2FN y 3FN) y preservación de dependencias (síntesis 3FN) se refieren a las reglas disponibles y al supuesto de 1FN; no certifican reglas semánticas desconocidas. La síntesis 3FN no consiste simplemente en ampliar una clave: construye relaciones desde una cubierta mínima e incluye una clave candidata cuando hace falta.
 
-El script exportado crea **estructuras vacías para la tabla de trabajo seleccionada**. Las nuevas relaciones tienen claves y referencias derivadas. No migra datos ni traslada automáticamente las referencias de otras tablas, CHECK, DEFAULT, triggers, índices o acciones CASCADE. La nulabilidad de nuevas claves se ajusta a NOT NULL. Hay que revisar estas decisiones antes de ejecutar el script. Puedes volver a importar el SQL exportado, incluidos sus ALTER TABLE, para continuar el análisis.
+## SQL Server real
 
-## Compatibilidad y límites explícitos
+La opción **Leer SQL Server** conserva la API de metadatos. Usa las variables `DB_SERVER`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`, y opcionalmente `DB_PORT` (1433) y `API_PORT` (3001). Puedes usar un `.env` ignorado por Git, basado en `.env.example`. Las credenciales permanecen en el servidor. Se requieren acceso TCP, certificado TLS confiable y visibilidad de metadatos, por ejemplo permisos VIEW DEFINITION.
 
-El lector admite el subconjunto habitual de exportaciones de SQL Server:
+La conexión solo lee estructura, no registros de negocio: con esa entrada el diagnóstico también queda condicionado a las claves del catálogo. La API tiene pruebas con lectores sustituidos. **La integración con un SQL Server real no se ha validado en este entorno.** No es necesaria para el flujo con archivos.
 
-- CREATE TABLE con nombres simples, Unicode, comillas dobles o corchetes escapados; esquema opcional.
-- Tipos parametrizados, claves primarias simples/compuestas, UNIQUE, IDENTITY y referencias inline/de tabla.
-- ALTER TABLE ADD para columnas, PRIMARY KEY, UNIQUE y FOREIGN KEY; WITH CHECK/NOCHECK y opciones de índices habituales en scripts SSMS.
-- GO, USE y SET se omiten; las cadenas, comentarios anidados e INSERT no se confunden con DDL.
-
-No es un intérprete completo de T-SQL. No reconstruye esquemas generados dinámicamente ni ejecuta procedimientos. Los cuerpos de procedimientos, vistas, funciones y triggers se omiten hasta GO con aviso. Las columnas calculadas, ALTER COLUMN, DROP y modificadores no interpretados necesitan revisión y bloquean la transformación de la tabla afectada. CHECK, DEFAULT y COLLATE se notifican como omisiones de la transformación. No se analiza el contenido de los registros.
-
-Se permiten hasta **1 000 tablas y 256 columnas por tabla**. Esto no implica que todas las combinaciones sean tratables: la búsqueda exacta de claves/proyecciones puede ser exponencial. Cada búsqueda tiene un presupuesto de **25 000 combinaciones** y cada trabajo termina después de **60 segundos**. Si se exceden, se informa del límite y **no se publica un diagnóstico parcial**. Una tabla de 120 columnas con clave simple y reglas sencillas sí está cubierta por pruebas.
-
-## SQL Server real (opcional)
-
-Configura las variables en el proceso de la API o en un `.env` local ignorado por Git (usa `.env.example` como guía):
-
-| Variable                 | Uso                                                     |
-| ------------------------ | ------------------------------------------------------- |
-| `DB_SERVER`              | Servidor alcanzable por TCP                             |
-| `DB_DATABASE`            | Base de datos                                           |
-| `DB_USER`, `DB_PASSWORD` | Cuenta con permisos de metadatos                        |
-| `DB_PORT`                | Puerto, por defecto 1433                                |
-| `API_PORT`               | API local, por defecto 3001; si cambia, ajusta el proxy |
-
-La API realiza consultas fijas a los catálogos `sys` y recoge columnas, claves primarias, claves únicas no filtradas y claves foráneas. No lee registros de negocio. Necesita visibilidad de tablas y permisos como `VIEW DEFINITION`, según la política del administrador. Requiere TLS con un certificado confiable; no se desactiva su verificación. Las credenciales nunca se solicitan en el navegador ni deben subirse al repositorio.
-
-En cloud también debes permitir el destino TCP y el puerto de SQL Server en los ajustes del entorno. Una regla HTTPS no habilita conexiones SQL. La API tiene pruebas de rutas y mapeo de metadatos con lectores sustituidos; **no se ha probado contra un servidor SQL Server real**. `GET /api/health` informa de la presencia de variables, no demuestra conexión.
-
-## Código para estudiar
-
-Consulta [la guía de arquitectura y algoritmos](docs/arquitectura.md). Los nombres explican el propósito, los módulos separan las responsabilidades y los comentarios explican las decisiones que lo necesitan. El formato se comprueba con Prettier.
+## Validar
 
 ```sh
-npm run test:engine       # Lector, algoritmos, archivos y API
-npm test -- --watch=false # Flujo y estado de Angular
+npm run test:sql           # Lector SQLGlot y perfiles
+npm run test:engine        # Algoritmos, PARCELAS, API y regresiones
+npm test -- --watch=false # Estado de la interfaz y cancelación
 npm run typecheck:api
 npm run build
 npm run format:check
-```
-
-Las pruebas incluyen comparación con un oráculo exhaustivo, preservación de dependencias, un chase para verificar reunión sin pérdida, lectura de archivos mayores de 10 MiB, codificaciones y escenarios de error. No sustituyen ensayar con el archivo y las reglas que se entreguen en clase.
-
-### Pruebas de navegador
-
-```sh
+# Chromium instalado por Playwright o ejecutable del sistema:
 npx playwright install chromium
 npm run test:e2e
+# En este entorno:
+PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-Las pruebas inician los servidores automáticamente. Si el equipo ya tiene un Chromium compatible, puedes indicar su ejecutable con `PLAYWRIGHT_CHROMIUM_PATH`. En el entorno cloud se verificaron con `/usr/bin/chromium`. Cubren el caso de 34 columnas, todas las descargas, archivos de más de 15 MiB, UTF-16, importación parcial, selección de clave, 1FN, cancelación y diseño móvil.
+Consulta [arquitectura](docs/arquitectura.md) y [requisitos](docs/requisitos-proyecto.md). El lector T-SQL anterior permanece para pruebas de regresión y utilidades heredadas; **el flujo nuevo de la aplicación utiliza SQLGlot**.

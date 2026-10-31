@@ -1,44 +1,23 @@
-# Guía de lectura del proyecto
+# Código para estudiar
 
-## Recorrido recomendado
+El flujo principal se divide en tres pasos:
 
-1. **`src/lib/models.ts`** define las estructuras compartidas. Una tabla contiene columnas, claves y referencias; no contiene filas.
-2. **`src/lib/sql/lexer.ts`** recorre el texto y distingue palabras, identificadores, literales y símbolos. Por eso una cadena con `CREATE TABLE` no se considera una tabla y una coma en `DECIMAL(12, 2)` no separa columnas.
-3. **`src/lib/sql/parser.ts`** interpreta las definiciones. Reúne las restricciones ALTER TABLE después de leer todas las tablas, resuelve nombres y produce diagnósticos. Una omisión conocida se comunica; una modificación que deja el esquema incierto bloquea la transformación de esa tabla.
-4. **`src/lib/relational.ts`** contiene clausuras, cubierta mínima, claves candidatas y diagnóstico. Las funciones reciben reglas explícitas: no adivinan el negocio.
-5. **`src/lib/decomposition.ts`** construye las relaciones resultantes. **`first-normal-form.ts`** implementa la extracción del grupo repetido que declara el estudiante.
-6. **`src/lib/exporters.ts`** convierte el modelo en SQL, Mermaid o SVG. No consulta la base de datos.
-7. **`src/lib/jobs.ts`** representa una operación completa de importación o normalización. El trabajador de **`src/app/services`** la ejecuta sin bloquear la interfaz, con cancelación y tiempo máximo.
-8. **`src/app/app.ts`** coordina el flujo y mantiene un espacio de trabajo por tabla. Los cambios que afectan al modelo invalidan sus resultados. Las solicitudes canceladas no pueden reemplazar el estado con respuestas tardías.
-9. **`server/app.ts`** define las rutas; **`server/sql-server.ts`** gestiona la conexión y transforma los metadatos tipados. **`schema-query.ts`** contiene las consultas fijas. Se pueden probar las rutas inyectando otro lector sin usar credenciales.
+1. **Leer:** `python/sql_analysis.py` utiliza el árbol de SQLGlot para recoger tablas, claves, referencias e INSERT literales. También cuenta NULL y duplicados, contrasta las reglas @fd y descubre hipótesis de dependencias en datos. No ejecuta SQL. `server/sqlglot.ts` invoca Python mediante stdin, sin shell y con límites; `server/app.ts` expone `POST /api/analyze-sql`.
+2. **Normalizar:** `src/lib/automatic.ts` organiza la extracción de grupos repetidos y las etapas 1FN/2FN/3FN para una tabla. Usa funciones puras del motor relacional probado. El trabajador de `src/app/services` evita bloquear la interfaz y permite cancelar. No se necesita escribir reglas manualmente en la app: puede usar claves, anotaciones del SQL o hipótesis de sus INSERT, identificando las diferencias.
+3. **Mostrar:** `src/app/app.ts` coordina cargar, analizar y descargar. `app.html` muestra entrada, diagnóstico y comparación de las tres etapas. `src/lib/project.ts` reúne tablas y revisa referencias. `exporters.ts` genera SQL, SVG y Mermaid; JSON conserva el análisis completo.
 
-`src/lib/normalization.ts` es la fachada pública que reexporta los módulos. Esto mantiene imports sencillos sin concentrar toda la lógica en un archivo enorme.
+## Matemática aislada de la interfaz
 
-## Cómo razona el motor
+- `relational.ts`: clausura de atributos, cubierta mínima, claves candidatas, proyección de dependencias y diagnóstico respecto de **todas** las claves candidatas.
+- `decomposition.ts`: divisiones binarias sin pérdida para 2FN, y síntesis con cubierta mínima para 3FN. Se incluye una clave candidata para asegurar reunión sin pérdida y se eliminan relaciones contenidas.
+- `first-normal-form.ts`: extrae un grupo repetido como relación hija, propagando la clave del padre y ampliándola con la posición.
 
-La **clausura** de X es el conjunto de atributos deducibles al aplicar repetidamente las dependencias cuyo determinante ya está contenido en X. Una **superclave** alcanza todos los atributos; una **clave candidata** además es mínima.
+Se conservó este núcleo porque tiene pruebas independientes de corrección: un oráculo exhaustivo de claves, un chase para reunión sin pérdida y verificación de preservación de dependencias. Reescribirlo solo para reducir líneas haría más difícil confiar en el resultado. La reestructuración simplifica la interacción y reemplaza la lectura SQL de producción con una librería mantenida.
 
-La búsqueda de claves comienza por los atributos que no aparecen en ningún consecuente: son obligatorios. Explora únicamente atributos que pueden actuar como determinantes y poda ramas cuya clausura ya es suficiente. Sigue siendo exacta; cuando agota su presupuesto lanza un error en lugar de devolver solo las primeras claves.
+## Caso PARCELAS
 
-El diagnóstico identifica todos los atributos primos, es decir, los que pertenecen a alguna clave candidata. Para 2FN busca atributos no primos alcanzables desde un subconjunto propio de una clave. Para 3FN comprueba una cubierta equivalente: cada determinante debe ser superclave o su consecuente debe ser primo. No es necesario listar todos los superconjuntos de una violación.
+`examples/parcelas.sql` incluye dos claves candidatas y las cuatro dependencias del ejemplo de clase. `tests/automatic.test.ts` compara los conjuntos exactos de columnas de las etapas 2FN y 3FN contra el material. `tests/browser/workbench.spec.ts` comprueba el recorrido real con SQLGlot, trabajador, interfaz y descargas.
 
-La síntesis 3FN parte de una **cubierta mínima**. Agrupa las reglas por determinante, elimina relaciones contenidas e incluye una relación con una clave candidata si ninguna la contiene. Esa última condición garantiza reunión sin pérdida. La descomposición 2FN hace divisiones binarias apoyadas en dependencias parciales.
+## Evidencia y límites
 
-Cuando una tabla se divide, hay que calcular qué dependencias se proyectan sobre cada relación. Una dependencia implícita puede atravesar atributos eliminados, por eso no basta con filtrar las reglas textuales. `projection` calcula clausuras y una cubierta equivalente, con presupuesto de búsqueda explícito.
-
-## Pruebas que conviene leer
-
-- `parser.test.ts`: scripts SSMS, escapes, restricciones posteriores, errores localizados y archivos pesados.
-- `relational.test.ts`: comparación contra enumeración exhaustiva y chase independiente para detectar descomposiciones con pérdida.
-- `engine.test.ts`: ejemplos pequeños de cada forma normal y exportaciones.
-- `jobs.test.ts`: límites de archivo y codificaciones.
-- `api.test.ts`: rutas sin credenciales reales y mapeo del catálogo de SQL Server.
-- `src/app/app.spec.ts`: prerrequisitos, conservación del trabajo por tabla, invalidación y cancelación.
-
-Los ejemplos grandes se generan con `scripts/generate-large-sql.mjs`; el repositorio mantiene solo el caso académico compacto. El generador utiliza un flujo de escritura, no sobrescribe archivos y no necesita una conexión a SQL Server.
-
-## Decisiones que requieren revisión humana
-
-Un nombre como `ClienteId` no demuestra que determine `ClienteNombre`. Una muestra de registros tampoco demuestra una regla universal. La confirmación del dominio y la atomicidad siempre pertenece al estudiante. Igualmente, generar un esquema en 1FN no divide automáticamente listas existentes en los registros.
-
-La aplicación opera por tabla. Vincular descomposiciones de varias tablas, migrar datos y preservar todos los índices, defaults, triggers y restricciones del sistema original son tareas distintas. Los avisos y el README explican esos límites para no presentar una exportación estructural como una migración completa.
+Los NULL no se eliminan automáticamente: pueden significar desconocido, ausente o no aplicable. Una muestra finita permite refutar una dependencia, pero no demostrarla para todo el dominio. La atomicidad depende del uso de los datos. Por ello los resultados muestran sus supuestos y no se presentan como una certificación incondicional de 3FN. Los posibles valores multivalor ambiguos, las claves ausentes y las contradicciones bloquean la transformación en lugar de producir un resultado silencioso.

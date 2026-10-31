@@ -14,7 +14,9 @@
     "format": "prettier --write src server tests scripts docs README.md package.json angular.json \"tsconfig*.json\" playwright.config.ts",
     "format:check": "prettier --check src server tests scripts docs README.md package.json angular.json \"tsconfig*.json\" playwright.config.ts",
     "sample:large": "node scripts/generate-large-sql.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "setup:sql": "python3 -m venv .venv && .venv/bin/python -m pip install -r python/requirements.txt",
+    "test:sql": ".venv/bin/python -m unittest discover -s python -p \"test_*.py\""
   },
   "private": true,
   "packageManager": "npm@11.9.0",

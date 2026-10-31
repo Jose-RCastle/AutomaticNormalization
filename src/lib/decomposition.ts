@@ -46,11 +46,13 @@ export function normalize(table: Table, rules: FD[], target: '2FN' | '3FN'): Tab
       .filter((c) => group.includes(c.name))
       .map((c) => ({ name: c.name, type: c.type, nullable: c.nullable })),
     primaryKey: candidateKeys(group, projection(group, rules))[0],
+    uniqueKeys: candidateKeys(group, projection(group, rules)).slice(1),
     foreignKeys: [],
   }));
   for (const relation of result) {
     relation.columns.forEach((c) => {
-      if (relation.primaryKey.includes(c.name)) c.nullable = false;
+      if ([relation.primaryKey, ...(relation.uniqueKeys || [])].some((key) => key.includes(c.name)))
+        c.nullable = false;
     });
     for (const other of result)
       if (

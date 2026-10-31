@@ -1,26 +1,20 @@
-# Proyecto I: Normalización Automatizada
+# Correspondencia con el Proyecto I y las diapositivas
 
-Implementación web para la rúbrica de Administración de Bases de Datos II. El procesamiento usa análisis léxico y algoritmos relacionales deterministas. No integra modelos de IA, servicios de inferencia, claves de proveedores ni generación de reglas mediante IA.
+| Requisito                     | Implementación                                                      | Evidencia o límite                                                   |
+| ----------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Aplicación web, sin IA        | Angular, Express, Python y SQLGlot                                  | No usa servicios ni modelos de IA                                    |
+| Archivo .SQL de varias tablas | SQLGlot T-SQL, carga UTF-8/UTF-16                                   | Pruebas Python y navegador                                           |
+| Conexión SQL Server           | API de catálogo con TLS                                             | Pruebas API sustituidas; servidor real pendiente                     |
+| Semántica clara               | Evidencia de claves, reglas @fd y dependencias observadas separadas | La semántica no se demuestra desde DDL                               |
+| Redundancia                   | Duplicados observados y descomposiciones por dependencias           | No borra registros                                                   |
+| Reducción de NULL             | Perfil por atributo y explicación de su significado                 | No separa atributos opcionales sin conocer el dominio                |
+| No generar tuplas falsas      | Descomposiciones sin pérdida bajo las reglas disponibles            | Chase independiente del motor; supuestos explícitos                  |
+| 1FN                           | Extracción de grupos numerados, clave hija ampliada                 | Listas ambiguas y estructuras anidadas no descritas se deben aclarar |
+| 2FN                           | Descomposición por dependencias parciales de atributos no primos    | Considera claves alternativas, como en PARCELAS                      |
+| 3FN                           | Cubierta mínima, síntesis e inclusión de clave candidata            | Comprueba la forma obtenida y preserva dependencias                  |
+| Diagnóstico y explicación     | Forma provisional, claves, dependencias y prerrequisitos            | No confunde ausencia de reglas con garantía semántica                |
+| Modelo entidad relación       | Visualización por etapa y diagrama conjunto                         | Revisión de FK antes de exportar                                     |
+| Archivo plano y script        | SQL Server, SVG, Mermaid e informe JSON                             | Estructuras vacías, sin migración de filas                           |
+| Flujo automático              | Un análisis prepara las tres etapas de todas las tablas             | Sin editor obligatorio ni casillas por tabla                         |
 
-| Requisito                              | Implementación                                                                               | Verificación                                                                    |
-| -------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Entrada .SQL de una o varias entidades | Importación en trabajador, UTF-8/UTF-16, CREATE/ALTER TABLE de SQL Server, informe por tabla | Pruebas parser, jobs y navegador                                                |
-| Conexión SQL Server                    | API de metadatos con consultas fijas, variables del servidor y TLS verificado                | Pruebas API con lectores sustituidos; conexión real requiere una base accesible |
-| Evaluación de prerrequisitos           | Revisión estructural, clave de trabajo, confirmación de atomicidad y completitud de reglas   | Pruebas Angular y motor                                                         |
-| Identificar forma normal               | Claves candidatas, atributos primos, dependencias parciales y violaciones de 3FN             | Oráculo exhaustivo y pruebas relacionales                                       |
-| Transformar a 1FN                      | Extracción explícita de un grupo repetido de columnas de igual tipo                          | Pruebas motor y navegador                                                       |
-| Transformar a 2FN y 3FN                | Descomposición binaria sin pérdida y síntesis por cubierta mínima                            | Pruebas de proyección, preservación y chase                                     |
-| Visualizar entidades y relaciones      | Diagramas SVG por tabla y vista del proyecto completo                                        | Pruebas navegador                                                               |
-| Archivo plano del modelo               | SVG, Mermaid e informe JSON                                                                  | Descargas verificadas en navegador                                              |
-| Script de estructuras normalizadas     | SQL Server con claves y FK; exportación por tabla o conjunta                                 | Reimportación del SQL generado y pruebas del proyecto                           |
-
-## Uso para la entrega
-
-1. Ejecuta `npm ci` y `npm run dev` con Node.js 24.15 o superior dentro de la rama 24.
-2. Carga un .sql o el caso universitario. Revisa los avisos de importación.
-3. Por cada tabla, declara las dependencias y confirma sus prerrequisitos. Selecciona 1FN, 2FN o 3FN y ejecuta el análisis.
-4. Examina el diagnóstico y descarga el modelo individual, o abre **Proyecto completo** para reunir los resultados de varias tablas.
-5. Las tablas pendientes se conservan y se identifican expresamente. Las referencias originales se reubican solo cuando sus columnas y la clave de destino permiten hacerlo sin ambigüedad. Los errores de referencias o nombres duplicados bloquean las exportaciones SQL/SVG/Mermaid conjuntas; el informe JSON permanece disponible para revisar el problema.
-6. Revisa el SQL antes de ejecutarlo en una base de práctica vacía.
-
-El SQL de estructura no demuestra atomicidad ni dependencias semánticas del negocio. Por eso el estudiante declara y confirma esas reglas. Las transformaciones generan estructuras, no migran registros; las restricciones omitidas se informan durante la importación. No se requiere SQL Server para el flujo con archivos. La conexión real es una integración opcional que necesita las variables descritas en el README y acceso TCP.
+El caso PARCELAS se verifica por sus columnas: una tabla en 1FN, dos en 2FN y tres en 3FN. Las anotaciones @fd del ejemplo aportan las reglas que las diapositivas proporcionan; SQLGlot no puede adivinarlas de los nombres de columnas.

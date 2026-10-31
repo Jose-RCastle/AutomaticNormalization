@@ -1,639 +1,227 @@
-<header class="topbar">
-  <a class="brand" href="#" aria-label="NormalizaDB, inicio"
-    ><span class="brand-mark">N</span>Normaliza<span>DB</span></a
-  >
-  <span class="course">Administración de Bases de Datos II</span>
-  <span class="local-badge">● Sin IA · Algoritmos locales</span>
+<header>
+  <a href="#">N<span>ormalizaDB</span></a
+  ><span>Sin IA · SQLGlot + algoritmos relacionales</span>
 </header>
 <main>
-  <div class="page-heading">
-    <div>
-      <p class="eyebrow">TU MESA DE TRABAJO</p>
-      <h1>Entiende tu esquema.<br />Construye mejores relaciones.</h1>
-      <p class="intro">Del archivo SQL a un modelo explicado, con tus reglas del negocio.</p>
+  <section class="intro">
+    <p class="eyebrow">PROYECTO I · ADMINISTRACIÓN DE BASES DE DATOS II</p>
+    <h1>Tu SQL, paso a paso<br />hasta tercera forma normal.</h1>
+    <p>
+      Carga el archivo. La aplicación analiza todas las tablas y prepara automáticamente las tres
+      etapas, sus claves y su diagrama.
+    </p>
+  </section>
+  <section class="card input">
+    <div class="heading">
+      <h2>1. Carga tu base de datos</h2>
+      <button (click)="example()" [disabled]="busy">Probar PARCELAS de clase</button>
     </div>
-    <div class="examples">
-      <span>¿Quieres practicar primero?</span
-      ><button (click)="loadSample()" [disabled]="busy">Ejemplo básico</button
-      ><button class="secondary" (click)="loadSample(true)" [disabled]="busy">
-        Caso universitario ↗ <small>12 tablas · 34 columnas</small>
-      </button>
+    <p>
+      Archivos SQL Server, UTF-8 o UTF-16, hasta 50 MiB. Se leen estructuras e INSERT literales;
+      nunca se ejecuta el SQL.
+    </p>
+    <div class="actions">
+      <label class="button primary"
+        >Seleccionar archivo .sql<input
+          type="file"
+          accept=".sql"
+          (change)="upload($event)"
+          [disabled]="busy" /></label
+      ><button (click)="connect()" [disabled]="busy">Leer SQL Server</button
+      ><span>{{ fileName }}</span>
     </div>
-  </div>
-  <nav class="tabs" aria-label="Etapas del proyecto">
-    <button [class.active]="section === 'import'" (click)="section = 'import'">
-      <span>01</span> Importar SQL
-    </button>
-    <button
-      [class.active]="section === 'work'"
-      (click)="section = 'work'"
-      [disabled]="!tables.length"
-    >
-      <span>02</span> Analizar tablas <b>{{ tables.length }}</b>
-    </button>
-    <button
-      [class.active]="section === 'result'"
-      (click)="section = 'result'"
-      [disabled]="!workspace?.results?.length"
-    >
-      <span>03</span> Modelo y exportación
-    </button>
-    <button
-      [class.active]="section === 'project'"
-      (click)="section = 'project'"
-      [disabled]="!tables.length"
-    >
-      <span>04</span> Proyecto completo
-    </button>
-  </nav>
-  @if (error) {
-    <div class="message error" role="alert">
-      <strong>No se pudo completar la operación.</strong> {{ error }}
-    </div>
-  }
-  @if (notice) {
-    <div class="message" role="status">{{ notice }}</div>
-  }
-  @if (busy) {
-    <div class="processing" role="status">
-      <span class="spinner"></span>
-      <div>
-        <strong>{{ busyLabel }}</strong
-        ><small>El procesamiento se realiza fuera del hilo de la interfaz.</small>
-      </div>
-      <button (click)="cancel()">Cancelar</button>
-    </div>
-  }
-
-  @if (section === 'import') {
-    <div class="import-grid">
-      <section class="panel">
-        <div class="section-heading">
-          <h2>Un archivo, una nueva perspectiva</h2>
-          <span class="pill">HASTA 50 MiB</span>
-        </div>
-        <p class="hint">
-          Sube el script que te entreguen en clase. Se reconocen tablas y restricciones; los INSERT
-          se omiten y nunca se ejecutan.
-        </p>
-        <div
-          class="dropzone"
-          [class.dragging]="dragged"
-          (dragover)="$event.preventDefault(); dragged = true"
-          (dragleave)="dragged = false"
-          (drop)="drop($event)"
-        >
-          <span class="upload-symbol">↥</span>
-          <h3>Arrastra tu archivo SQL aquí</h3>
-          <p>UTF-8 y UTF-16 con marca de codificación</p>
-          <label class="file-button"
-            >Seleccionar .sql<input
-              type="file"
-              accept=".sql"
-              [disabled]="busy"
-              (change)="upload($event)"
-          /></label>
-        </div>
-        <details [open]="showSource">
-          <summary>Pegar SQL manualmente</summary>
-          <label for="sql">Script de entrada</label
-          ><textarea
-            id="sql"
-            class="code sql-editor"
-            [(ngModel)]="sql"
-            [disabled]="busy"
-            spellcheck="false"
-            placeholder="CREATE TABLE ..."
-          ></textarea
-          ><button class="primary" (click)="importSQL()" [disabled]="busy || !sql.trim()">
-            Importar texto SQL →
-          </button>
-        </details>
-        @if (fileName) {
-          <p class="file-info">
-            Última fuente: <strong>{{ fileName }}</strong> {{ sizeLabel }}
-          </p>
-        }
-      </section>
-      <aside class="import-notes">
-        <section class="panel">
-          <h2>Antes de empezar</h2>
-          <ol class="guide">
-            <li>
-              <strong>Importa la estructura.</strong
-              ><span
-                >CREATE TABLE, claves compuestas, IDENTITY, UNIQUE y restricciones con ALTER
-                TABLE.</span
-              >
-            </li>
-            <li>
-              <strong>Revisa el informe.</strong
-              ><span
-                >Las advertencias señalan lo que necesita atención. Una tabla con problemas
-                estructurales no se normaliza.</span
-              >
-            </li>
-            <li>
-              <strong>Declara el significado.</strong
-              ><span
-                >Una clave y las reglas del negocio permiten razonar sobre 1FN, 2FN y 3FN.</span
-              >
-            </li>
-          </ol>
-        </section>
-        <section class="panel connection">
-          <h2>¿Ya tienes una base de datos?</h2>
-          <p class="hint">
-            Consulta sus metadatos mediante la API. La configuración y las credenciales permanecen
-            en el servidor.
-          </p>
-          <button (click)="connect()" [disabled]="busy">Importar de SQL Server</button>
-        </section>
-      </aside>
-    </div>
-  }
-  @if (importResult) {
-    <details class="import-report" [open]="hasImportErrors">
-      <summary>
-        Informe de importación
-        <span
-          >{{ tables.length }} tablas · {{ totalColumns }} columnas ·
-          {{ importResult.diagnostics.length }} avisos</span
-        >
-      </summary>
-      <p class="hint">
-        {{ importResult.ignoredStatements }} instrucciones de datos o configuración omitidas. No se
-        han ejecutado ni utilizado para inferir dependencias.
-      </p>
-      <div class="diagnostics">
-        @for (d of importResult.diagnostics; track $index) {
-          <div [class.problem]="d.level === 'error'">
-            <span>{{ d.level === 'error' ? 'REVISAR' : 'AVISO' }} · línea {{ d.line }}</span
-            ><strong>{{ d.table || 'Archivo' }}</strong>
-            <p>{{ d.message }}</p>
-          </div>
-        } @empty {
-          <p>
-            No se detectaron problemas en las definiciones reconocidas. Esto no demuestra las reglas
-            semánticas de las tablas.
-          </p>
-        }
-      </div>
+    <details>
+      <summary>O pega el SQL aquí</summary>
+      <label for="sql">Script SQL</label
+      ><textarea
+        id="sql"
+        [(ngModel)]="sql"
+        [disabled]="busy"
+        spellcheck="false"
+        placeholder="CREATE TABLE ..."
+      ></textarea>
     </details>
+    <button class="primary" (click)="run()" [disabled]="busy || !sql.trim()">
+      Analizar y normalizar automáticamente
+    </button>
+  </section>
+  @if (busy) {
+    <div class="status" role="status">
+      {{ progress }} <button (click)="cancel()">Cancelar</button>
+    </div>
   }
-  @if ((section === 'work' || section === 'result') && tables.length) {
-    <div class="workbench">
-      <aside class="panel table-browser">
-        <div class="section-heading">
-          <h2>Explorador</h2>
-          <span class="pill">{{ completed }} / {{ tables.length }}</span>
+  @if (error) {
+    <div class="error" role="alert">{{ error }}</div>
+  }
+  @if (results.length) {
+    <section class="card">
+      <div class="heading">
+        <h2>2. Entiende el diagnóstico</h2>
+        <small>{{ parser }}</small>
+      </div>
+      <p class="notice">
+        Propuesta automática bajo la información disponible. La semántica del negocio y la
+        atomicidad no se demuestran a partir de los nombres ni de una muestra. Sin reglas completas,
+        la forma normal es provisional.
+      </p>
+      @for (warning of warnings; track $index) {
+        <p class="notice">{{ warning }}</p>
+      }
+      <div class="table-list">
+        @for (r of results; track r.source.name; let i = $index) {
+          <button [class.active]="selected === i" (click)="selected = i">
+            {{ r.source.name }} <small>{{ r.error ? 'Revisar' : r.form }}</small>
+          </button>
+        }
+      </div>
+      @if (current; as r) {
+        <h3>{{ r.source.name }}</h3>
+        @if (r.error) {
+          <p class="error">{{ r.error }}</p>
+        }
+        <div class="metrics">
+          <div>
+            <small>FORMA DE PARTIDA</small><strong>{{ r.form }}</strong>
+          </div>
+          <div>
+            <small>FILAS EXAMINADAS</small><strong>{{ r.source.profile?.rowCount || 0 }}</strong>
+          </div>
+          <div>
+            <small>CLAVES CANDIDATAS</small
+            ><strong>
+              @for (key of r.diagnosis?.keys || []; track $index) {
+                <code>({{ key.join(', ') }}) </code>
+              }
+            </strong>
+          </div>
         </div>
-        <label for="search" class="sr-only">Buscar tabla</label
-        ><input id="search" type="search" [(ngModel)]="search" placeholder="Buscar tabla…" />
-        <div class="table-options">
-          @for (t of filteredTables; track t.name) {
-            <button
-              [class.selected]="selected === t.name"
-              [disabled]="busy"
-              (click)="choose(t.name)"
-            >
-              <strong>{{ t.name }}</strong
-              ><span
-                >{{ t.columns.length }} columnas
-                <b [class.done]="status(t.name) !== 'Pendiente'">{{
-                  t.issues?.length ? 'Revisar' : status(t.name)
-                }}</b></span
-              >
-            </button>
-          } @empty {
-            <p class="hint">No hay tablas con ese nombre.</p>
-          }
-        </div>
-        <p class="hint">
-          Cada tabla conserva sus reglas y resultados mientras trabajas. Descarga las reglas antes
-          de cerrar.
-        </p>
-        <button class="full" (click)="downloadRules()">Guardar reglas ↓</button
-        ><label class="rules-upload"
-          >Cargar reglas JSON<input
-            type="file"
-            accept=".json"
-            [disabled]="busy"
-            (change)="uploadRules($event)"
-        /></label>
-      </aside>
-      @if (table; as t) {
-        @if (workspace; as w) {
-          <div class="working-area">
-            <div class="table-title">
-              <div>
-                <p class="eyebrow">TABLA DE TRABAJO</p>
-                <h2>{{ t.name }}</h2>
-              </div>
-              <span>{{ t.columns.length }} columnas · {{ t.foreignKeys.length }} referencias</span>
-            </div>
-            @if (t.issues?.length) {
-              <div class="message error">
-                <strong>Revisión estructural necesaria.</strong>
-                @for (issue of t.issues; track $index) {
-                  <p>{{ issue }}</p>
-                }
-                <p>
-                  Corrige esa definición en el SQL y vuelve a importarlo. Las otras tablas pueden
-                  seguir utilizándose.
-                </p>
-              </div>
-            }
-            @if (section === 'work') {
-              <div class="analysis-grid">
-                <section class="panel columns-panel">
-                  <h3>Columnas y claves</h3>
-                  <div class="column-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Columna</th>
-                          <th>Tipo</th>
-                          <th>Nulos</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        @for (c of t.columns; track c.name) {
-                          <tr>
-                            <td>
-                              <span class="key-icon">{{
-                                t.primaryKey.includes(c.name) ? 'PK' : '·'
-                              }}</span
-                              >{{ c.name }}
-                            </td>
-                            <td>
-                              <code>{{ c.type }}</code>
-                            </td>
-                            <td>{{ c.nullable ? 'Sí' : 'No' }}</td>
-                          </tr>
-                        }
-                      </tbody>
-                    </table>
-                  </div>
-                  <details [open]="!t.primaryKey.length">
-                    <summary>
-                      {{
-                        t.primaryKey.length
-                          ? 'Editar clave de trabajo'
-                          : 'Falta la clave primaria: selecciónala'
-                      }}
-                    </summary>
-                    <p class="hint">
-                      Selecciona varias columnas con Ctrl/Cmd. Cambiar la clave modifica el supuesto
-                      del análisis; no modifica la base de datos.
-                    </p>
-                    <label for="key">Clave primaria</label
-                    ><select
-                      id="key"
-                      multiple
-                      [ngModel]="t.primaryKey"
-                      (ngModelChange)="setKey($event)"
-                      [disabled]="busy"
-                    >
-                      @for (c of t.columns; track c.name) {
-                        <option [value]="c.name">{{ c.name }}</option>
-                      }
-                    </select>
-                  </details>
-                  @if (t.uniqueKeys?.length) {
-                    <p class="hint">
-                      Claves UNIQUE:
-                      @for (key of t.uniqueKeys; track $index) {
-                        <code>({{ key.join(', ') }}) </code>
-                      }
-                      Solo las que no permiten NULL se usan como determinantes.
-                    </p>
-                  }
-                  @if (t.foreignKeys.length) {
-                    <details>
-                      <summary>Referencias de entrada</summary>
-                      @for (f of t.foreignKeys; track $index) {
-                        <p class="hint">
-                          {{ f.columns.join(', ') }} → {{ f.table }} ({{ f.references.join(', ') }})
-                        </p>
-                      }
-                    </details>
-                  }
-                </section>
-                <section class="panel rules-panel">
-                  <div class="section-heading">
-                    <h3>Reglas del negocio</h3>
-                    <span class="pill">{{ w.target }}</span>
-                  </div>
-                  <p class="hint">
-                    La clave primaria ya determina todos los atributos. Añade lo que sabes del
-                    dominio, sin deducirlo solo por el nombre de una columna.
-                  </p>
-                  <details class="rule-builder">
-                    <summary>Construir una dependencia con las columnas</summary>
-                    <div class="builder-fields">
-                      <label
-                        >Determina<select multiple [(ngModel)]="determinant" [disabled]="busy">
-                          @for (c of t.columns; track c.name) {
-                            <option [value]="c.name">{{ c.name }}</option>
-                          }
-                        </select></label
-                      ><span>→</span
-                      ><label
-                        >A estos atributos<select
-                          multiple
-                          [(ngModel)]="consequent"
-                          [disabled]="busy"
-                        >
-                          @for (c of t.columns; track c.name) {
-                            <option [value]="c.name">{{ c.name }}</option>
-                          }
-                        </select></label
-                      >
-                    </div>
-                    <button
-                      (click)="addRule()"
-                      [disabled]="busy || !determinant.length || !consequent.length"
-                    >
-                      Añadir dependencia
-                    </button>
-                  </details>
-                  <label for="fds">Una dependencia por línea</label
-                  ><textarea
-                    id="fds"
-                    class="code rules-editor"
-                    [(ngModel)]="w.rules"
-                    (ngModelChange)="invalidate(); w.complete = false"
-                    [disabled]="busy"
-                    placeholder="ClienteId -> ClienteNombre&#10;PedidoId, ProductoId -> Cantidad"
-                    spellcheck="false"
-                  ></textarea>
-                  <label for="target">Transformar a</label>
-                  <div class="target-row">
-                    <select
-                      id="target"
-                      aria-label="Forma normal objetivo"
-                      [(ngModel)]="w.target"
-                      (ngModelChange)="invalidate(); w.atomic = false; w.complete = false"
-                      [disabled]="busy"
-                    >
-                      <option>1FN</option>
-                      <option>2FN</option>
-                      <option>3FN</option>
-                    </select>
-                    <p>
-                      {{
-                        w.target === '1FN'
-                          ? 'Extraer un grupo repetido a una relación hija.'
-                          : w.target === '2FN'
-                            ? 'Eliminar dependencias parciales respecto a las claves.'
-                            : 'Eliminar dependencias parciales y violaciones de tercera forma.'
-                      }}
-                    </p>
-                  </div>
-                  @if (w.target === '1FN') {
-                    <label for="group">Columnas del grupo repetido (mismo tipo)</label
-                    ><select
-                      id="group"
-                      multiple
-                      [(ngModel)]="w.group"
-                      (ngModelChange)="invalidate(); w.atomic = false"
-                      [disabled]="busy"
-                    >
-                      @for (c of t.columns; track c.name) {
-                        @if (!t.primaryKey.includes(c.name)) {
-                          <option [value]="c.name">{{ c.name }}</option>
-                        }
-                      }
-                    </select>
-                    <p class="hint">
-                      También admite una columna que contenga una lista. Se creará una tabla hija
-                      con Valor y Posicion; la migración de datos es manual.
-                    </p>
-                  }
-                  <label class="check"
-                    ><input
-                      type="checkbox"
-                      [(ngModel)]="w.atomic"
-                      (change)="invalidate()"
-                      [disabled]="busy"
-                    />{{
-                      w.target === '1FN'
-                        ? 'Confirmo que los atributos restantes y los valores futuros del grupo son atómicos.'
-                        : 'Confirmo valores atómicos, sin listas ni grupos repetidos (1FN).'
-                    }}</label
-                  >
-                  @if (w.target !== '1FN') {
-                    <label class="check"
-                      ><input
-                        type="checkbox"
-                        [(ngModel)]="w.complete"
-                        (change)="invalidate()"
-                        [disabled]="busy"
-                      />He revisado las dependencias y representan las reglas completas del
-                      negocio.</label
-                    >
-                  }
-                  <button
-                    class="primary full normalize"
-                    (click)="run()"
-                    [disabled]="busy || !!t.issues?.length"
-                  >
-                    Analizar y normalizar →
-                  </button>
-                </section>
-              </div>
-            } @else {
-              @if (w.results.length) {
-                <div class="result-summary">
-                  <div>
-                    <small>FORMA ACTUAL</small
-                    ><strong>{{ w.report?.form || 'Grupo repetido declarado' }}</strong>
-                  </div>
-                  <span>→</span>
-                  <div>
-                    <small>OBJETIVO</small><strong>{{ w.target }}</strong>
-                  </div>
-                  <div>
-                    <small>RELACIONES RESULTANTES</small><strong>{{ w.results.length }}</strong>
-                  </div>
-                  <button (click)="section = 'work'">Editar reglas</button>
-                </div>
-                @if (w.report; as report) {
-                  <section class="panel reasoning">
-                    <h3>Por qué se obtiene este diagnóstico</h3>
-                    <p>
-                      Claves candidatas:
-                      @for (key of report.keys; track $index) {
-                        <code class="key-chip">{{ key.join(' + ') }}</code>
-                      }
-                    </p>
-                    <div class="reasons">
-                      <div>
-                        <h4>
-                          Dependencias parciales <b>{{ report.partial.length }}</b>
-                        </h4>
-                        @for (rule of report.partial; track $index) {
-                          <p class="dependency">
-                            {{ rule.left.join(', ') }} → {{ rule.right.join(', ') }}
-                          </p>
-                        } @empty {
-                          <p class="hint">
-                            No hay atributos no primos determinados por una parte propia de una
-                            clave candidata.
-                          </p>
-                        }
-                      </div>
-                      <div>
-                        <h4>
-                          Violaciones de 3FN <b>{{ report.transitive.length }}</b>
-                        </h4>
-                        @for (rule of report.transitive; track $index) {
-                          <p class="dependency">
-                            {{ rule.left.join(', ') }} → {{ rule.right.join(', ') }}
-                          </p>
-                        } @empty {
-                          <p class="hint">La cubierta no contiene reglas que violen 3FN.</p>
-                        }
-                      </div>
-                    </div>
-                  </section>
-                }
-                <section class="panel model-panel">
-                  <div class="section-heading">
-                    <h3>Mapa de relaciones</h3>
-                    <div class="zoom">
-                      <button
-                        aria-label="Alejar diagrama"
-                        (click)="zoom = zoom > 50 ? zoom - 25 : 50"
-                      >
-                        −</button
-                      ><span>{{ zoom }}%</span
-                      ><button
-                        aria-label="Acercar diagrama"
-                        (click)="zoom = zoom < 200 ? zoom + 25 : 200"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                  <div class="diagram-scroll">
-                    <img
-                      class="diagram"
-                      [style.width.%]="zoom"
-                      [src]="diagramUrl"
-                      alt="Diagrama de las entidades normalizadas y sus referencias"
-                    />
-                  </div>
-                  <p class="hint">
-                    Las flechas apuntan a la clave referenciada. Desplaza el diagrama o descarga el
-                    SVG para ampliarlo.
-                  </p>
-                  <div class="exports">
-                    <button class="primary" (click)="download('sql')">Script SQL ↓</button
-                    ><button (click)="download('svg')">Diagrama SVG ↓</button
-                    ><button (click)="download('mmd')">Mermaid ↓</button
-                    ><button (click)="download('json')">Esquema JSON ↓</button
-                    ><button (click)="downloadReport()">Informe del análisis ↓</button>
-                  </div>
-                </section>
-                <details class="panel">
-                  <summary>Detalle de entidades y referencias</summary>
-                  <div class="entities">
-                    @for (result of w.results; track result.name) {
-                      <article class="entity">
-                        <h3>{{ result.name }}</h3>
-                        @for (c of result.columns; track c.name) {
-                          <div>
-                            <span
-                              >{{ result.primaryKey.includes(c.name) ? 'PK ' : ''
-                              }}{{ c.name }}</span
-                            ><code>{{ c.type }}</code>
-                          </div>
-                        }
-                      </article>
-                    }
-                  </div>
-                  <div class="relations">
-                    @for (relation of relations(); track $index) {
-                      <p>{{ relation }}</p>
-                    }
-                  </div>
-                </details>
-                <p class="export-note">
-                  El script crea estructuras vacías para esta tabla de trabajo. No migra registros
-                  ni traslada automáticamente restricciones de negocio o referencias externas. La
-                  garantía de la síntesis 3FN depende de las reglas que confirmaste.
-                </p>
-              } @else {
-                <section class="panel empty">
-                  <h3>Esta tabla aún no tiene un modelo generado.</h3>
-                  <p>Revisa su clave y sus dependencias antes de normalizar.</p>
-                  <button (click)="section = 'work'">Volver al análisis</button>
-                </section>
+        <h3>Prerrequisitos</h3>
+        <ul>
+          <li>
+            <b>Semántica clara:</b> requiere conocimiento del dominio. No se adivina por nombres.
+          </li>
+          <li>
+            <b>Redundancia:</b> {{ r.source.profile?.duplicateRows || 0 }} filas duplicadas
+            observadas. Las descomposiciones eliminan dependencias parciales y transitivas según las
+            reglas disponibles.
+          </li>
+          <li>
+            <b>Valores NULL:</b>
+            @for (c of r.source.columns; track c.name) {
+              @if (r.source.profile?.nulls?.[c.name]) {
+                <span>{{ c.name }}: {{ r.source.profile!.nulls[c.name] }}. </span>
               }
             }
+            No se eliminan filas ni columnas para ocultarlos; su significado necesita revisión.
+          </li>
+          <li>
+            <b>Tuplas falsas:</b> 2FN usa divisiones sin pérdida; 3FN incluye una clave y preserva
+            dependencias. Las garantías dependen de la validez de las reglas y de los supuestos de
+            1FN.
+          </li>
+        </ul>
+        <details>
+          <summary>Reglas y evidencia del análisis</summary>
+          <p>
+            {{
+              r.source.rules?.length
+                ? 'Reglas de negocio incluidas en el SQL (@fd) y claves declaradas.'
+                : 'Claves declaradas y, si existen, hipótesis descubiertas en los INSERT.'
+            }}
+          </p>
+          @for (fd of r.rules; track $index) {
+            <p>
+              <code>{{ fd.left.join(', ') }} → {{ fd.right.join(', ') }}</code>
+            </p>
+          }
+          <p>{{ r.source.profile?.search }}</p>
+        </details>
+        <details open>
+          <summary>Supuestos y advertencias</summary>
+          <ul>
+            @for (text of r.assumptions; track $index) {
+              <li>{{ text }}</li>
+            }
+            @for (text of r.source.warnings || []; track $index) {
+              <li>{{ text }}</li>
+            }
+          </ul>
+        </details>
+        @if (r.diagnosis; as d) {
+          <div class="violations">
+            <div>
+              <h3>Dependencias parciales (2FN)</h3>
+              @for (fd of d.partial; track $index) {
+                <p>
+                  <code>{{ fd.left.join(', ') }} → {{ fd.right.join(', ') }}</code>
+                </p>
+              } @empty {
+                <p>No detectadas bajo las reglas disponibles.</p>
+              }
+            </div>
+            <div>
+              <h3>Violaciones de tercera forma (3FN)</h3>
+              @for (fd of d.transitive; track $index) {
+                <p>
+                  <code>{{ fd.left.join(', ') }} → {{ fd.right.join(', ') }}</code>
+                </p>
+              } @empty {
+                <p>No detectadas bajo las reglas disponibles.</p>
+              }
+            </div>
           </div>
         }
       }
-    </div>
-  }
-  @if (section === 'project' && tables.length) {
-    @let model = project;
-    <section class="panel project-model">
-      <div class="section-heading">
-        <h2>Modelo del proyecto completo</h2>
-        <span class="pill">{{ model.completed }} / {{ tables.length }} tablas analizadas</span>
+    </section>
+    <section class="card">
+      <h2>3. Compara y descarga el resultado</h2>
+      <div class="actions">
+        @for (label of ['1FN', '2FN', '3FN']; track label; let i = $index) {
+          <button [class.active]="stage === i" (click)="stage = i">{{ label }}</button>
+        }
       </div>
-      <p class="hint">
-        Reúne las descomposiciones calculadas y las tablas originales pendientes. Las referencias
-        externas se conservan solo cuando su destino es inequívoco. Cada tabla mantiene sus propias
-        reglas y forma objetivo.
-      </p>
-      @if (model.warnings.length) {
-        <details open>
-          <summary>Tablas pendientes ({{ model.warnings.length }})</summary>
-          @for (warning of model.warnings; track $index) {
-            <p class="hint">{{ warning }}</p>
-          }
-        </details>
-      }
-      @if (model.errors.length) {
-        <div class="message error" role="alert">
-          <strong>Revisión requerida antes de exportar</strong>
-          @for (error of model.errors; track $index) {
-            <p>{{ error }}</p>
+      @if (current?.stages?.[stage]; as step) {
+        <p>{{ step.explanation }}</p>
+        <div class="entities">
+          @for (table of step.tables; track table.name) {
+            <article>
+              <h3>{{ table.name }}</h3>
+              @for (c of table.columns; track c.name) {
+                <div>
+                  <span>{{ table.primaryKey.includes(c.name) ? '🔑 ' : '' }}{{ c.name }}</span
+                  ><code>{{ c.type }}</code>
+                </div>
+              }
+            </article>
           }
         </div>
       }
-      <div class="diagram-scroll">
-        <img
-          class="project-diagram"
-          [src]="projectDiagram"
-          alt="Modelo entidad relación de todas las tablas del proyecto"
-        />
+      @if (exportErrors.length) {
+        <div class="error" role="alert">
+          <b>Revisa antes de exportar el modelo conjunto:</b>
+          @for (message of exportErrors; track $index) {
+            <p>{{ message }}</p>
+          }
+        </div>
+      }
+      <details>
+        <summary>Ver diagrama de todas las tablas en esta etapa</summary>
+        <div class="diagram">
+          <img [src]="diagram" alt="Diagrama entidad relación de la etapa seleccionada" />
+        </div>
+      </details>
+      <div class="actions">
+        <button class="primary" (click)="download('sql')" [disabled]="!!exportErrors.length">
+          Descargar SQL</button
+        ><button (click)="download('svg')" [disabled]="!!exportErrors.length">Diagrama SVG</button
+        ><button (click)="download('mmd')" [disabled]="!!exportErrors.length">Mermaid</button
+        ><button (click)="download('json')">Informe completo JSON</button>
       </div>
-      <div class="exports">
-        <button class="primary" (click)="downloadProject('sql')" [disabled]="!!model.errors.length">
-          SQL del proyecto ↓
-        </button>
-        <button (click)="downloadProject('svg')" [disabled]="!!model.errors.length">
-          SVG del proyecto ↓
-        </button>
-        <button (click)="downloadProject('mmd')" [disabled]="!!model.errors.length">
-          Mermaid del proyecto ↓
-        </button>
-        <button (click)="downloadProject('json')">Informe del proyecto ↓</button>
-      </div>
-      <p class="export-note">
-        El script genera estructuras vacías. Las tablas pendientes no se presentan como
-        normalizadas. Revisa el informe, las restricciones omitidas y las reglas antes de ejecutar
-        el SQL.
+      <p class="notice">
+        Se generan estructuras vacías. No se migran registros ni se aplican cambios a la base de
+        datos. Revisa supuestos y restricciones omitidas antes de ejecutar el script.
       </p>
     </section>
   }
-  <footer>
-    <span>NormalizaDB · Un espacio para aprender normalización</span
-    ><span>1FN / 2FN / 3FN · Sin ejecución de scripts importados</span>
-  </footer>
+  <footer>Normalización explicada · 1FN → 2FN → 3FN · Sin inteligencia artificial</footer>
 </main>
