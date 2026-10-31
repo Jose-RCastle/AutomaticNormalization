@@ -1,3 +1,4 @@
+import { sqlglotPython } from '../scripts/python-runtime';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -9,7 +10,10 @@ import { parseSQL } from '../src/lib/normalization';
 
 const fromSQL = (sql: string): ParsedTable =>
   JSON.parse(
-    execFileSync('.venv/bin/python', ['python/sql_analysis.py'], { input: sql, encoding: 'utf8' }),
+    execFileSync(sqlglotPython(), ['-X', 'utf8', 'python/sql_analysis.py'], {
+      input: sql,
+      encoding: 'utf8',
+    }),
   ).tables[0];
 test('PARCELAS reproduce las etapas de clase y considera la clave alternativa compuesta', () => {
   const result = automaticNormalization(fromSQL(readFileSync('examples/parcelas.sql', 'utf8')));
@@ -63,7 +67,10 @@ test('varias tablas: conserva una clave alternativa referenciada y reubica las F
   const sql =
     '-- @fd P: A -> Id\nCREATE TABLE P(Id INT PRIMARY KEY, A INT NOT NULL UNIQUE); CREATE TABLE H(Id INT PRIMARY KEY, PId INT REFERENCES P(Id));';
   const tables: ParsedTable[] = JSON.parse(
-    execFileSync('.venv/bin/python', ['python/sql_analysis.py'], { input: sql, encoding: 'utf8' }),
+    execFileSync(sqlglotPython(), ['-X', 'utf8', 'python/sql_analysis.py'], {
+      input: sql,
+      encoding: 'utf8',
+    }),
   ).tables;
   const results = tables.map((table) => automaticNormalization(table));
   assert.ok(results.every((result) => !result.error));
