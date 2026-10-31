@@ -1,4 +1,5 @@
 import express from 'express';
+import { parseWithSqlGlot } from './sqlglot';
 import { isConfigured, readSchema } from './sql-server';
 
 /** Inyectar el lector permite probar la API sin una base de datos real. */
@@ -6,6 +7,26 @@ export function createApp(configured = isConfigured, loadSchema = readSchema) {
   const app = express();
   let reading = false;
   app.disable('x-powered-by');
+  app.use(express.json({ limit: '52mb' }));
+  let analyzing = false;
+  app.post('/api/analyze-sql', async (request, response) => {
+    if (typeof request.body?.sql !== 'string' || !request.body.sql.trim()) {
+      response.status(400).json({ error: 'Envía un script SQL en el campo sql.' });
+      return;
+    }
+    if (analyzing) {
+      response.status(429).json({ error: 'Hay otro análisis en curso.' });
+      return;
+    }
+    analyzing = true;
+    try {
+      response.json(await parseWithSqlGlot(request.body.sql));
+    } catch (error) {
+      response.status(422).json({ error: (error as Error).message });
+    } finally {
+      analyzing = false;
+    }
+  });
   app.get('/api/health', (_request, response) =>
     response.json({ status: 'ok', sqlServerConfigured: configured() }),
   );

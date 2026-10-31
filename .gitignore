@@ -33,3 +33,6 @@ yarn-error.log*
 /universidad-grande.sql
 /playwright-report/
 /test-results/
+/.venv/
+__pycache__/
+*.pyc

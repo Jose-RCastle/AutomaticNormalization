@@ -1,9 +1,11 @@
+import { automaticNormalization, ParsedTable } from './automatic';
 import { MAX_FILE_BYTES, Table } from './models';
 import { importSQL } from './sql/parser';
 import { analyze, dependencies, parseDependencies } from './relational';
 import { normalize } from './decomposition';
 import { firstNormalForm } from './first-normal-form';
 export type Job =
+  | { type: 'automatic'; table: ParsedTable }
   | { type: 'import'; sql?: string; file?: File }
   | {
       type: 'normalize';
@@ -13,6 +15,7 @@ export type Job =
       group: string[];
     };
 export async function executeJob(job: Job) {
+  if (job.type === 'automatic') return automaticNormalization(job.table);
   if (job.type === 'import') {
     let sql = job.sql || '';
     if (job.file) {
