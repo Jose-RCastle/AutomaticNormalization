@@ -19,7 +19,8 @@ class SqlAnalysisTests(unittest.TestCase):
         self.assertTrue(table['issues'])
 
     def test_no_expressions_or_unrecognized_changes_are_executed(self):
-        for sql in ['CREATE TABLE P(Id INT); INSERT INTO P VALUES(ABS(-1));', 'CREATE TABLE P(Id INT); DROP TABLE P;', 'CREATE TABLE P(Id INT); ALTER TABLE P DROP COLUMN Id;']:
+        self.assertTrue(analyze_sql('CREATE TABLE P(Id INT); INSERT INTO P VALUES(ABS(-1));')['tables'][0]['warnings'])
+        for sql in ['CREATE TABLE P(Id INT); DROP TABLE P;', 'CREATE TABLE P(Id INT); ALTER TABLE P DROP COLUMN Id;']:
             with self.subTest(sql=sql), self.assertRaises(ValueError):
                 analyze_sql(sql)
 

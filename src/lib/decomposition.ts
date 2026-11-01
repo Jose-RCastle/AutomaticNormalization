@@ -2,7 +2,12 @@ import { FD, Table } from './models';
 import { analyze, candidateKeys, cover, projection, subset, unique } from './relational';
 
 /** Síntesis 3FN por cubierta mínima, o descomposición binaria para 2FN. */
-export function normalize(table: Table, rules: FD[], target: '2FN' | '3FN'): Table[] {
+export function normalize(
+  table: Table,
+  rules: FD[],
+  target: '2FN' | '3FN',
+  nulls: Record<string, number> = {},
+): Table[] {
   if (table.issues?.length) throw Error(table.issues.join(' '));
   const attributes = table.columns.map((c) => c.name);
   let groups: string[][];
@@ -40,19 +45,91 @@ export function normalize(table: Table, rules: FD[], target: '2FN' | '3FN'): Tab
       }
     }
   }
-  const result: Table[] = groups.map((group, i) => ({
-    name: `${table.name.replace(/\./g, '_').slice(0, 100)}_${target}_${i + 1}`,
-    columns: table.columns
+  // Non-null keys are represented by FDs and preserved by synthesis. Nullable UNIQUE
+  // constraints are SQL constraints outside classical FD semantics and must be retained explicitly.
+  const originalKeys = (table.uniqueKeys || []).filter((k) =>
+    k.some((n) => table.columns.find((c) => c.name === n)?.nullable),
+  );
+  for (const key of originalKeys)
+    if (!groups.some((g) => subset(key, g)))
+      throw Error(
+        `La restricción UNIQUE (${key.join(', ')}) abarca varias relaciones. Se conserva la etapa anterior hasta resolver esta restricción.`,
+      );
+  for (const check of table.checks || [])
+    if (!groups.some((g) => subset(check.columns, g)))
+      throw Error(
+        `CHECK (${check.expression}) abarca varias relaciones; necesita una restricción entre tablas antes de exportar esta etapa.`,
+      );
+  let identityOwner = groups.findIndex((g) => subset(table.primaryKey, g));
+  if (identityOwner < 0)
+    identityOwner = groups.findIndex((g) =>
+      table.columns.some((c) => c.identity && g.includes(c.name)),
+    );
+  const result: Table[] = groups.map((group, i) => {
+    const keys = candidateKeys(group, projection(group, rules));
+    const preferred = keys.find(
+      (k) => k.length === table.primaryKey.length && subset(k, table.primaryKey),
+    );
+    const primaryKey =
+      preferred ||
+      keys.find((k) => k.every((n) => !table.columns.find((c) => c.name === n)?.nullable)) ||
+      keys[0];
+    const invalid = primaryKey.filter((n) => nulls[n]);
+    if (invalid.length)
+      throw Error(
+        `No se puede crear una clave en ${invalid.join(', ')}: contiene NULL. La dependencia no permite reconstruir esos registros. Corrige su significado o los datos; se conserva la etapa anterior.`,
+      );
+    const unindexable = primaryKey.filter((n) =>
+      /\(\s*MAX\s*\)|^(TEXT|NTEXT|IMAGE|XML|JSON|GEOGRAPHY|GEOMETRY|CALCULADA)$/i.test(
+        table.columns.find((c) => c.name === n)!.type,
+      ),
+    );
+    if (unindexable.length)
+      throw Error(
+        `SQL Server no puede usar ${unindexable.join(', ')} como clave con su tipo actual. Define un tipo indexable antes de exportar esta etapa.`,
+      );
+    const name = `${(table.sqlName?.at(-1) || table.name.replace(/\./g, '_')).slice(0, 100)}_${target}_${i + 1}`;
+    const sqlName = [...(table.sqlName?.slice(0, -1) || []), name];
+    const localKeys = [
+      ...keys.filter((k) => k !== primaryKey),
+      ...(table.uniqueKeys || []).filter((k) => subset(k, group)),
+    ];
+    const uniqueKeys = localKeys.filter(
+      (k, index) =>
+        !(k.length === primaryKey.length && subset(k, primaryKey)) &&
+        !localKeys.slice(0, index).some((other) => other.length === k.length && subset(k, other)),
+    );
+    const columns = table.columns
       .filter((c) => group.includes(c.name))
-      .map((c) => ({ name: c.name, type: c.type, nullable: c.nullable })),
-    primaryKey: candidateKeys(group, projection(group, rules))[0],
-    uniqueKeys: candidateKeys(group, projection(group, rules)).slice(1),
-    foreignKeys: [],
-  }));
+      .map((c) => {
+        const copy = structuredClone(c);
+        if (i !== identityOwner) delete copy.identity;
+        if (copy.computed && !subset(copy.expressionColumns || [], group))
+          throw Error(
+            `La expresión de ${copy.name} necesita columnas que quedaron en otra tabla. No se ha eliminado la expresión.`,
+          );
+        return copy;
+      });
+    return {
+      name: sqlName.join('.'),
+      sqlName,
+      origin: table.origin || table.name,
+      columns,
+      primaryKey,
+      uniqueKeys,
+      foreignKeys: [],
+      checks: (table.checks || []).filter((c) => subset(c.columns, group)),
+      warnings: primaryKey
+        .filter((n) => table.columns.find((c) => c.name === n)?.nullable)
+        .map(
+          (n) =>
+            `${n}: la nueva clave requiere NOT NULL; verifica la totalidad de los datos antes de migrar.`,
+        ),
+    };
+  });
   for (const relation of result) {
     relation.columns.forEach((c) => {
-      if ([relation.primaryKey, ...(relation.uniqueKeys || [])].some((key) => key.includes(c.name)))
-        c.nullable = false;
+      if (relation.primaryKey.includes(c.name)) c.nullable = false;
     });
     for (const other of result)
       if (

@@ -16,7 +16,10 @@
     "sample:large": "node scripts/generate-large-sql.mjs",
     "test:e2e": "playwright test",
     "setup:sql": "python3 -m venv .venv && .venv/bin/python -m pip install -r python/requirements.txt",
-    "test:sql": ".venv/bin/python -m unittest discover -s python -p \"test_*.py\""
+    "test:sql": ".venv/bin/python -m unittest discover -s python -p \"test_*.py\"",
+    "db:local": "node scripts/local-sql-server.mjs",
+    "api:local": "node --env-file=.env.sqlserver.local --import tsx server/index.ts",
+    "dev:local": "concurrently -k \"npm run api:local\" \"npm start -- --host 0.0.0.0 --proxy-config proxy.conf.json\""
   },
   "private": true,
   "packageManager": "npm@11.9.0",
@@ -27,6 +30,7 @@
     "@angular/forms": "^22.2.0",
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
+    "@dagrejs/dagre": "^1.1.5",
     "express": "5.1.0",
     "mssql": "12.1.0",
     "rxjs": "~7.8.0",
@@ -37,6 +41,7 @@
     "@angular/cli": "^22.2.4",
     "@angular/compiler-cli": "^22.2.0",
     "@playwright/test": "1.64.1",
+    "@types/dagre": "^0.7.53",
     "@types/express": "5.0.3",
     "@types/mssql": "9.1.8",
     "concurrently": "9.2.1",

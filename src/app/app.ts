@@ -2,12 +2,14 @@ import { Component, ChangeDetectorRef, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AnalysisService } from './services/analysis.service';
 import { AutomaticResult, ParsedTable } from '../lib/automatic';
+import { Table } from '../lib/models';
 import { exportSQL, exportSVG, exportMermaid } from '../lib/exporters';
-import { assembleProject } from '../lib/project';
+import { assembleProject, ProjectModel } from '../lib/project';
+import { SchemaView } from './schema-view';
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule],
+  imports: [FormsModule, SchemaView],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -17,6 +19,7 @@ export class App implements OnDestroy {
   private controller?: AbortController;
   private request = 0;
   sql = '';
+  dialect = 'tsql';
   busy = false;
   progress = '';
   error = '';
@@ -26,25 +29,65 @@ export class App implements OnDestroy {
   selected = 0;
   stage = 2;
   fileName = '';
-  get current(): AutomaticResult | undefined {
+  inputMode: 'file' | 'text' | 'server' = 'file';
+  view: 'diagram' | 'tables' = 'diagram';
+  zoom = 100;
+  filter = '';
+  customConnection = false;
+  includeData = true;
+  connection = { server: '', port: 1433, database: '', user: '', password: '' };
+  domainRules: Record<string, string> = {};
+  rulesName = '';
+  beforeTables: Table[] = [];
+  afterTables: Table[] = [];
+  project: ProjectModel = { tables: [], warnings: [], errors: [], completed: 0 };
+  get current() {
     return this.results[this.selected];
-  }
-  get project() {
-    return assembleProject(
-      this.results.map((r) => r.source),
-      new Map(this.results.map((r) => [r.source.name, r.stages[this.stage]?.tables || []])),
-    );
   }
   get exportErrors() {
     return [
-      ...this.results.flatMap((r) => (r.error ? [`${r.source.name}: ${r.error}`] : [])),
+      ...this.results.flatMap((r) =>
+        r.error
+          ? [`${r.source.name}: ${r.error}`]
+          : r.stages[this.stage]?.error
+            ? [`${r.source.name}: ${r.stages[this.stage].error}`]
+            : [],
+      ),
       ...this.project.errors,
     ];
   }
-  get diagram() {
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(exportSVG(this.project.tables));
+  get examinedRows() {
+    return this.results.reduce((n, r) => n + (r.source.profile?.rowCount || 0), 0);
   }
-
+  get relationCount() {
+    return this.project.tables.reduce((n, t) => n + t.foreignKeys.length, 0);
+  }
+  get evidence() {
+    if (this.results.some((r) => r.source.rules?.length)) return 'Reglas declaradas';
+    if (this.results.some((r) => r.source.profile?.observedRules.length))
+      return 'Dependencias observadas';
+    return 'Claves del esquema';
+  }
+  refreshProject() {
+    this.project = assembleProject(
+      this.results.map((r) => r.source),
+      new Map(this.results.map((r) => [r.source.name, r.stages[this.stage]?.tables || []])),
+    );
+    this.beforeTables = this.results
+      .filter((r) => !this.filter || r.source.name === this.filter)
+      .map((r) => r.source);
+    const blocked = new Set(
+      this.results.filter((r) => r.error || r.stages[this.stage]?.error).map((r) => r.source.name),
+    );
+    this.afterTables = this.project.tables.filter(
+      (t) =>
+        !blocked.has(t.origin || t.name) && (!this.filter || (t.origin || t.name) === this.filter),
+    );
+  }
+  selectStage(stage: number) {
+    this.stage = stage;
+    this.refreshProject();
+  }
   async upload(event: Event) {
     const input = event.target as HTMLInputElement,
       file = input.files?.[0];
@@ -64,73 +107,102 @@ export class App implements OnDestroy {
       ).decode(bytes);
       this.fileName = file.name;
       await this.run();
-    } catch (error) {
-      this.error = (error as Error).message;
+    } catch (e) {
+      this.error = (e as Error).message;
     } finally {
       this.cdr.markForCheck();
     }
   }
-  async example() {
-    if (this.busy) return;
+  async loadRules(event: Event) {
+    const input = event.target as HTMLInputElement,
+      file = input.files?.[0];
+    input.value = '';
+    if (!file || this.busy) return;
     try {
-      const response = await fetch('examples/parcelas.sql');
-      if (!response.ok) throw Error('No se pudo cargar el ejemplo.');
-      this.sql = await response.text();
-      this.fileName = 'parcelas.sql';
-      await this.run();
-    } catch (error) {
-      this.error = (error as Error).message;
+      if (file.size > 1024 * 1024) throw Error('Las reglas deben ocupar menos de 1 MiB.');
+      const value = JSON.parse(await file.text());
+      if (
+        !value ||
+        Array.isArray(value) ||
+        typeof value !== 'object' ||
+        Object.values(value).some((v) => typeof v !== 'string')
+      )
+        throw Error(
+          'Usa un JSON con nombres de tabla y cadenas de dependencias: tabla → "A -> B".',
+        );
+      this.domainRules = value;
+      this.rulesName = file.name;
+      if (this.sql.trim() && this.inputMode !== 'server') await this.run();
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
       this.cdr.markForCheck();
     }
   }
+  async clearRules() {
+    this.domainRules = {};
+    this.rulesName = '';
+    if (this.sql.trim() && this.inputMode !== 'server') await this.run();
+  }
   async connect() {
     await this.run(true);
+  }
+  private async analyzeTables(tables: ParsedTable[], id = this.request) {
+    const results: AutomaticResult[] = [];
+    const unmatched = Object.keys(this.domainRules).filter(
+      (name) => !tables.some((t) => t.name.toLowerCase() === name.toLowerCase()),
+    );
+    if (unmatched.length) throw Error('Reglas para tablas ausentes: ' + unmatched.join(', '));
+    for (const source of tables) {
+      if (id !== this.request) return;
+      const table = structuredClone(source);
+      this.progress = `Analizando ${table.name} · ${results.length + 1}/${tables.length}`;
+      this.cdr.markForCheck();
+      results.push((await this.worker.run({ type: 'automatic', table })) as AutomaticResult);
+    }
+    if (id !== this.request) return;
+    this.results = results;
+    this.selected = 0;
+    this.filter = '';
+    this.refreshProject();
   }
   async run(fromServer = false) {
     if (this.busy || (!fromServer && !this.sql.trim())) return;
     const id = ++this.request;
     this.busy = true;
     this.error = '';
-    this.progress = fromServer
-      ? 'Leyendo metadatos de SQL Server…'
-      : 'Interpretando SQL con SQLGlot…';
+    this.progress = fromServer ? 'Conectando y leyendo SQL Server…' : 'Leyendo el archivo SQL…';
     this.controller = new AbortController();
     try {
-      const response = await fetch(
-        fromServer ? '/api/schema' : '/api/analyze-sql',
-        fromServer
-          ? { signal: this.controller.signal }
-          : {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sql: this.sql }),
-              signal: this.controller.signal,
-            },
-      );
-      const payload = await response.json();
-      const data =
-        fromServer && response.ok
-          ? { tables: payload, warnings: [], parser: 'Catálogo SQL Server' }
-          : payload;
-      if (response.ok && (!Array.isArray(data.tables) || !data.tables.length))
-        throw Error('No hay tablas visibles.');
-      if (!response.ok) throw Error(data.error || 'No se pudo interpretar el SQL.');
-      const results: AutomaticResult[] = [];
-      for (const table of data.tables as ParsedTable[]) {
-        if (id !== this.request) return;
-        this.progress = `Normalizando ${table.name} (${results.length + 1}/${data.tables.length})…`;
-        this.cdr.markForCheck();
-        results.push((await this.worker.run({ type: 'automatic', table })) as AutomaticResult);
-      }
+      const response = await fetch(fromServer ? '/api/sql-server' : '/api/analyze-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: this.controller.signal,
+        body: JSON.stringify(
+          fromServer
+            ? {
+                connection: this.customConnection ? this.connection : undefined,
+                includeData: this.includeData,
+                rules: this.domainRules,
+              }
+            : { sql: this.sql, dialect: this.dialect, rules: this.domainRules },
+        ),
+      });
+      const data = await response.json();
       if (id !== this.request) return;
-      if (fromServer) this.fileName = 'Metadatos SQL Server';
-      this.results = results;
-      this.selected = 0;
-      this.stage = 2;
+      if (!response.ok) throw Error(data.error || 'No se pudo completar la lectura.');
+      if (!Array.isArray(data.tables) || !data.tables.length)
+        throw Error('No hay tablas para analizar.');
+      await this.analyzeTables(data.tables, id);
+      if (id !== this.request) return;
+      if (fromServer) {
+        this.fileName = this.customConnection ? this.connection.database : 'SQL Server';
+        this.connection.password = '';
+      } else if (!this.fileName) this.fileName = 'SQL pegado';
       this.parser = data.parser;
-      this.warnings = data.warnings;
-    } catch (error) {
-      if (id === this.request) this.error = (error as Error).message;
+      this.warnings = data.warnings || [];
+    } catch (e) {
+      if (id === this.request) this.error = (e as Error).message;
     } finally {
       if (id === this.request) {
         this.busy = false;
@@ -145,32 +217,39 @@ export class App implements OnDestroy {
     this.busy = false;
     this.progress = '';
   }
-  download(kind: 'sql' | 'svg' | 'mmd' | 'json') {
-    if (!this.results.length || (kind !== 'json' && this.exportErrors.length)) return;
+  download(kind: 'sql' | 'svg' | 'mmd' | 'json', before = false) {
+    if (!this.results.length || (!before && kind !== 'json' && this.exportErrors.length)) return;
+    const tables = before ? this.results.map((r) => r.source) : this.project.tables;
     const content =
       kind === 'sql'
-        ? exportSQL(this.project.tables)
+        ? exportSQL(tables)
         : kind === 'svg'
-          ? exportSVG(this.project.tables)
+          ? exportSVG(tables)
           : kind === 'mmd'
-            ? exportMermaid(this.project.tables)
+            ? exportMermaid(tables)
             : JSON.stringify(
                 {
                   parser: this.parser,
+                  warnings: this.warnings,
                   results: this.results,
                   project: this.project,
-                  limitations: [
-                    'Propuesta bajo las reglas disponibles, no certificación semántica.',
-                    'No migra filas, defaults, índices, triggers ni todas las restricciones del original.',
-                  ],
                 },
                 null,
                 2,
               );
-    const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    const url = URL.createObjectURL(
+      new Blob([content], {
+        type:
+          kind === 'svg'
+            ? 'image/svg+xml'
+            : kind === 'json'
+              ? 'application/json'
+              : 'text/plain;charset=utf-8',
+      }),
+    );
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `normalizacion-${this.stage + 1}FN.${kind}`;
+    anchor.download = `${before ? 'original' : 'normalizacion-' + (this.stage + 1) + 'FN'}.${kind}`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

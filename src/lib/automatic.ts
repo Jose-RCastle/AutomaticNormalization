@@ -1,13 +1,16 @@
 import { FD, Table } from './models';
 import { analyze, dependencies, parseDependencies, projection, candidateKeys } from './relational';
 import { normalize } from './decomposition';
-import { firstNormalForm } from './first-normal-form';
+import { numberedNormalForm } from './first-normal-form';
 
 export interface ParsedTable extends Table {
   warnings?: string[];
   rules?: string[];
   profile?: {
     rowCount: number;
+    totalRows?: number;
+    sampled?: boolean;
+    searchLimited?: boolean;
     nulls: Record<string, number>;
     duplicateRows: number;
     possibleLists?: string[];
@@ -20,7 +23,7 @@ export interface AutomaticResult {
   form: string;
   assumptions: string[];
   rules: FD[];
-  stages: { label: string; explanation: string; tables: Table[] }[];
+  stages: { label: string; explanation: string; tables: Table[]; error?: string }[];
   diagnosis: ReturnType<typeof analyze> | null;
   error?: string;
 }
@@ -41,23 +44,29 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
   try {
     if (source.issues?.length) throw Error(source.issues.join(' '));
     const table = structuredClone(source);
+    table.origin = source.name;
     if (table.profile?.possibleLists?.length)
-      throw Error(
-        `Posibles valores multivalor en ${table.profile.possibleLists.join(', ')}. No se separan cadenas por comas sin saber si son listas, direcciones o texto. Aclara el dominio o proporciona atributos atómicos para continuar.`,
+      assumptions.push(
+        `Texto con separadores en ${table.profile.possibleLists.join(', ')}: se conserva como valor escalar. Una coma en una dirección no demuestra que exista una lista.`,
       );
     if (!table.primaryKey.length) {
       const key = table.uniqueKeys?.find((key) =>
         key.every((name) => table.columns.some((c) => c.name === name && !c.nullable)),
       );
-      if (!key)
-        throw Error(
-          'No hay PRIMARY KEY ni UNIQUE NOT NULL. No se inventó una clave a partir de una muestra; agrega una clave al SQL para transformar esta tabla.',
+      if (key) table.primaryKey = key;
+      else {
+        let name = '__RowId';
+        while (table.columns.some((c) => c.name.toLowerCase() === name.toLowerCase())) name += '_';
+        table.columns.unshift({ name, type: 'BIGINT', nullable: false, identity: 'IDENTITY(1,1)' });
+        table.primaryKey = [name];
+        assumptions.push(
+          `Sin clave declarada: se propone ${name}, una clave técnica IDENTITY. No se ha supuesto que las filas de la muestra constituyan una clave de negocio.`,
         );
-      table.primaryKey = key;
+      }
     }
     const declared = parseDependencies((table.rules || []).join('\n'), table);
-    const empirical = declared.length ? [] : table.profile?.observedRules || [];
-    if (empirical.length)
+    const empirical = table.profile?.observedRules || [];
+    if (empirical.length && !declared.length)
       assumptions.push(
         'Dependencias descubiertas en los INSERT: hipótesis de la muestra, no reglas universales. Revisa la propuesta antes de aplicarla.',
       );
@@ -65,7 +74,9 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
       assumptions.push(
         'Solo hay dependencias de claves declaradas. Pueden faltar dependencias parciales o transitivas del negocio.',
       );
-    result.rules = dependencies(table, [...declared, ...empirical]);
+    // Keep declared semantics authoritative when present; observed rules remain visible in the profile.
+    const effective = declared.length ? declared : empirical;
+    result.rules = dependencies(table, effective);
     const groups = new Map<string, string[]>();
     for (const column of table.columns) {
       const match = column.name.match(/^(.*?)[_]?\d+$/);
@@ -76,29 +87,48 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
     }
     let parent: Table = table;
     const children: Table[] = [];
-    for (const group of [...groups.values()].filter((group) => group.length > 1)) {
-      if (
-        result.rules.some((rule) =>
-          [...rule.left, ...rule.right].some((name) => group.includes(name)),
-        )
-      ) {
-        // La clave declarada determina todos los atributos; esa regla no impide extraerlos.
-        if (
-          [...declared, ...empirical].some((rule) =>
-            [...rule.left, ...rule.right].some((name) => group.includes(name)),
-          )
-        )
-          throw Error(
-            'Un grupo repetido participa en reglas adicionales. Se necesita aclarar su significado antes de extraerlo.',
-          );
+    const bundles = new Map<string, { name: string; columns: string[] }[]>();
+    for (const group of [...groups.values()].filter((g) => g.length > 1)) {
+      const fkShapes = group.map((n) =>
+        JSON.stringify(
+          table.foreignKeys
+            .filter((f) => f.columns.includes(n))
+            .map((f) => ({
+              table: f.table,
+              references: f.references,
+              onDelete: f.onDelete,
+              onUpdate: f.onUpdate,
+            }))
+            .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        ),
+      );
+      const constrained =
+        new Set(fkShapes).size > 1 ||
+        effective.some((f) => [...f.left, ...f.right].some((n) => group.includes(n))) ||
+        (table.uniqueKeys || []).some((k) => k.some((n) => group.includes(n))) ||
+        (table.checks || []).some((c) => c.columns.some((n) => group.includes(n))) ||
+        table.columns.some(
+          (c) => group.includes(c.name) && (c.computed || c.default || c.identity),
+        );
+      const name = group[0].replace(/[_]?\d+$/, '');
+      if (constrained || table.primaryKey.includes(name)) {
+        assumptions.push(
+          `Se conservan ${group.join(', ')}: extraerlas automáticamente alteraría reglas o restricciones. La numeración por sí sola no prueba un atributo multivalor.`,
+        );
+        continue;
       }
-      const [next, child] = firstNormalForm(parent, group);
-      child.name =
-        table.name.replace(/\./g, '_') + '_' + group[0].replace(/[_]?\d+$/, '') + '_Valores';
+      group.sort((a, b) => Number(a.match(/\d+$/)![0]) - Number(b.match(/\d+$/)![0]));
+      const positions = group.map((n) => n.match(/\d+$/)![0]).join(',');
+      bundles.set(positions, [...(bundles.get(positions) || []), { name, columns: group }]);
+    }
+    for (const bundle of bundles.values()) {
+      const group = bundle.flatMap((g) => g.columns);
+      const [next, child] = numberedNormalForm(parent, bundle);
+      if (children.some((c) => c.name === child.name)) child.name += '_' + (children.length + 1);
       children.push(child);
       parent = next;
       assumptions.push(
-        `Grupo supuesto por numeración y tipo: ${group.join(', ')}. Se extrae a ${child.name}; revisa que represente el mismo atributo multivalor.`,
+        `Grupo supuesto por numeración y tipo: ${group.join(', ')}. Se extrae a ${child.name}; las columnas con la misma posición permanecen juntas. Revisa el significado del grupo.`,
       );
     }
     const rules = projection(
@@ -117,51 +147,63 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
       tables: [parent, ...children],
     });
     for (const target of ['2FN', '3FN'] as const) {
-      const tables = normalize(parent, rules, target);
-      // Conservar las FK externas; assembleProject las resolverá sobre el conjunto completo.
-      for (const relation of tables) {
-        for (const foreign of parent.foreignKeys)
-          if (foreign.columns.every((name) => relation.columns.some((c) => c.name === name)))
-            relation.foreignKeys.push(foreign);
-      }
-      const remaining = children.map((child) => {
-        const copy = structuredClone(child);
-        const owner = tables.find(
-          (t) =>
-            parent.primaryKey.every((name) => t.primaryKey.includes(name)) &&
-            t.primaryKey.length === parent.primaryKey.length,
-        );
-        if (!owner) throw Error('No se puede reubicar la clave del grupo repetido sin ambigüedad.');
-        copy.foreignKeys = [
-          { columns: parent.primaryKey, table: owner.name, references: parent.primaryKey },
-        ];
-        return copy;
-      });
-      // Comprobar la forma obtenida con todas las claves, no solo la principal.
-      for (const relation of tables) {
-        const local = projection(
-          relation.columns.map((c) => c.name),
-          rules,
-        );
-        if (
-          !candidateKeys(
+      try {
+        const tables = normalize(parent, rules, target, table.profile?.nulls);
+        // Conservar las FK externas; assembleProject las resolverá sobre el conjunto completo.
+        for (const relation of tables) {
+          for (const foreign of parent.foreignKeys)
+            if (foreign.columns.every((name) => relation.columns.some((c) => c.name === name)))
+              relation.foreignKeys.push(foreign);
+        }
+        const remaining = children.map((child) => {
+          const copy = structuredClone(child);
+          const owner = tables.find((t) =>
+            [t.primaryKey, ...(t.uniqueKeys || [])].some(
+              (k) =>
+                k.length === parent.primaryKey.length &&
+                parent.primaryKey.every((name) => k.includes(name)),
+            ),
+          );
+          if (!owner)
+            throw Error('No se puede reubicar la clave del grupo repetido sin ambigüedad.');
+          copy.foreignKeys = [
+            { columns: parent.primaryKey, table: owner.name, references: parent.primaryKey },
+          ];
+          return copy;
+        });
+        // Comprobar la forma obtenida con todas las claves, no solo la principal.
+        for (const relation of tables) {
+          const local = projection(
             relation.columns.map((c) => c.name),
-            local,
-          ).length
-        )
-          throw Error('No se pudo determinar una clave resultante.');
-        const checked = analyze(relation, local, true);
-        if (checked.partial.length || (target === '3FN' && checked.transitive.length))
-          throw Error('La descomposición no pasó la verificación de forma normal.');
+            rules,
+          );
+          if (
+            !candidateKeys(
+              relation.columns.map((c) => c.name),
+              local,
+            ).length
+          )
+            throw Error('No se pudo determinar una clave resultante.');
+          const checked = analyze(relation, local, true);
+          if (checked.partial.length || (target === '3FN' && checked.transitive.length))
+            throw Error('La descomposición no pasó la verificación de forma normal.');
+        }
+        result.stages.push({
+          label: target,
+          explanation:
+            target === '2FN'
+              ? 'Elimina dependencias parciales de atributos no primos respecto de todas las claves candidatas mediante divisiones sin pérdida.'
+              : 'Síntesis con cubierta mínima e inclusión de una clave: preserva dependencias y permite reunión sin pérdida bajo las reglas disponibles.',
+          tables: [...tables, ...remaining],
+        });
+      } catch (error) {
+        result.stages.push({
+          label: target,
+          explanation: 'Esta etapa necesita resolver una restricción antes de exportar.',
+          tables: [],
+          error: (error as Error).message,
+        });
       }
-      result.stages.push({
-        label: target,
-        explanation:
-          target === '2FN'
-            ? 'Elimina dependencias parciales de atributos no primos respecto de todas las claves candidatas mediante divisiones sin pérdida.'
-            : 'Síntesis con cubierta mínima e inclusión de una clave: preserva dependencias y permite reunión sin pérdida bajo las reglas disponibles.',
-        tables: [...tables, ...remaining],
-      });
     }
   } catch (error) {
     result.error = (error as Error).message;

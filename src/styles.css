@@ -1,22 +1,24 @@
 :root {
   color-scheme: light;
-  --ink: #20372f;
-  --muted: #61796c;
-  --green: #17634c;
-  --line: #dce5df;
-  --surface: #ffffff;
+  --ink: #222;
+  --muted: #737373;
+  --line: #dedede;
+  --surface: #fff;
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
-  background: #f3f6f3;
+  background: #fafafa;
   color: var(--ink);
   font:
     14px/1.6 Inter,
     ui-sans-serif,
     system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
     sans-serif;
 }
 button,
@@ -30,70 +32,86 @@ select,
 summary {
   cursor: pointer;
 }
-button {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 15px;
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid #d4d4d4;
+  border-radius: 5px;
+  padding: 9px 14px;
   background: white;
-  color: var(--green);
+  color: #333;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+  line-height: 1.5;
 }
-button:hover:not(:disabled) {
-  background: #edf5ef;
+button:hover:not(:disabled),
+.button:hover {
+  background: #f0f0f0;
 }
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.45;
 }
-button.primary {
-  background: var(--green);
-  border-color: var(--green);
-  color: white;
+button.primary,
+.button.primary {
+  background: #262626;
+  border-color: #262626;
+  color: #fff;
 }
-button.primary:hover:not(:disabled) {
-  background: #104a38;
+button.primary:hover:not(:disabled),
+.button.primary:hover {
+  background: #444;
 }
 input,
 select,
 textarea {
-  border: 1px solid #cddbd1;
-  background: #fbfdfb;
-  border-radius: 7px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 4px;
   padding: 10px;
-  color: var(--ink);
+  color: #222;
   width: 100%;
+  min-width: 0;
 }
-input[type='checkbox'] {
-  width: 16px;
-  min-width: 16px;
-  height: 16px;
-  accent-color: var(--green);
+input[type='checkbox'],
+input[type='radio'] {
+  width: 15px;
+  height: 15px;
+  accent-color: #333;
 }
-input[type='file'] {
-  font-size: 12px;
-  padding: 8px;
-}
-select[multiple] {
-  min-height: 130px;
+input[type='range'] {
+  accent-color: #444;
+  padding: 0;
 }
 textarea {
   resize: vertical;
-  font-size: 12px;
-  line-height: 1.8;
+  min-height: 180px;
+  font:
+    12px/1.8 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
 }
 label {
   display: block;
   font-size: 12px;
-  font-weight: 600;
-  margin: 15px 0 7px;
+  font-weight: 500;
 }
-code,
-.code {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+code {
+  font:
+    12px/1.7 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
 }
 :focus-visible {
-  outline: 3px solid #bf8d30;
+  outline: 2px solid #555;
   outline-offset: 3px;
 }
 h1,
@@ -104,28 +122,40 @@ p {
   margin-top: 0;
 }
 h2 {
-  font-size: 18px;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  font-weight: 600;
 }
 h3 {
   font-size: 14px;
+  font-weight: 600;
 }
 h4 {
   font-size: 12px;
 }
 summary {
   font-size: 12px;
-  font-weight: 650;
-  color: var(--green);
+  font-weight: 550;
+  color: #444;
 }
 details[open] > summary {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
 }
-.sr-only {
+.subtle {
+  color: #737373;
+  font-size: 12px;
+}
+a {
+  color: inherit;
+}
+.file-input {
   position: absolute;
+  opacity: 0;
   width: 1px;
   height: 1px;
-  padding: 0;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
+}
+.button:focus-within {
+  outline: 2px solid #555;
+  outline-offset: 3px;
 }

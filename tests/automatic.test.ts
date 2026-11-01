@@ -51,12 +51,13 @@ test('extrae grupos numerados, amplía la clave hija y mantiene las referencias 
     assert.ok(stage.tables.some((t) => t.name === child.foreignKeys[0].table));
   }
 });
-test('DDL sin reglas no se presenta como certificación; ausencia de clave bloquea transformación', () => {
+test('DDL sin reglas no certifica semántica; sin clave propone una identidad técnica', () => {
   const provisional = automaticNormalization(fromSQL('CREATE TABLE P(Id INT PRIMARY KEY, A INT);'));
   assert.ok(provisional.assumptions.some((a) => a.includes('Pueden faltar')));
   const missing = automaticNormalization(fromSQL('CREATE TABLE P(A INT, B INT);'));
-  assert.match(missing.error!, /No hay PRIMARY KEY/);
-  assert.equal(missing.stages.length, 0);
+  assert.equal(missing.error, undefined);
+  assert.equal(missing.stages.length, 3);
+  assert.ok(missing.stages[0].tables[0].columns.some((c) => c.identity));
 });
 
 test('varias tablas: conserva una clave alternativa referenciada y reubica las FK entre resultados', () => {
@@ -75,13 +76,14 @@ test('varias tablas: conserva una clave alternativa referenciada y reubica las F
   assert.ok(project.tables.some((t) => t.foreignKeys.some((f) => f.table.startsWith('P_3FN'))));
   assert.equal(parseSQL(exportSQL(project.tables)).length, 2);
 });
-test('listas ambiguas y reglas contradichas bloquean resultados en lugar de certificar 1FN', () => {
+test('texto con separadores se conserva atómico; las contradicciones bloquean resultados', () => {
   const lists = automaticNormalization(
     fromSQL(
       "CREATE TABLE P(Id INT PRIMARY KEY, Telefonos VARCHAR(40)); INSERT INTO P VALUES(1,'123;456');",
     ),
   );
-  assert.match(lists.error!, /Posibles valores multivalor/);
+  assert.equal(lists.error, undefined);
+  assert.ok(lists.assumptions.some((a) => a.includes('se conserva como valor escalar')));
   const contradiction = automaticNormalization(
     fromSQL(
       '-- @fd P: A -> B\nCREATE TABLE P(Id INT PRIMARY KEY, A INT, B INT); INSERT INTO P VALUES(1,2,3),(2,2,4);',

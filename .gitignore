@@ -36,3 +36,6 @@ yarn-error.log*
 /.venv/
 __pycache__/
 *.pyc
+
+# Local SQL Server certificates and credentials
+/.local/

@@ -32,6 +32,14 @@ export function assembleProject(
   }
   const contains = (table: Table, columns: string[]) =>
     columns.every((name) => table.columns.some((column) => column.name === name));
+  const mapped = (table: Table, columns: string[]) =>
+    columns.map((n) =>
+      table.columns.some((c) => c.name === n)
+        ? n
+        : Object.entries(table.columnOrigins || {}).find(([, originals]) =>
+            originals.includes(n),
+          )?.[0] || n,
+    );
   const isKey = (table: Table, columns: string[]) =>
     [table.primaryKey, ...(table.uniqueKeys || [])].some(
       (key) =>
@@ -51,7 +59,7 @@ export function assembleProject(
       warnings.push(`${source.name}: conserva la estructura original; normalización pendiente.`);
     for (const reference of source.foreignKeys) {
       const owners = (replacements.get(source.name) || []).filter((table) =>
-        contains(table, reference.columns),
+        contains(table, mapped(table, reference.columns)),
       );
       const targets = (replacements.get(reference.table) || []).filter(
         (table) => contains(table, reference.references) && isKey(table, reference.references),
@@ -63,7 +71,12 @@ export function assembleProject(
         table.foreignKeys = table.foreignKeys.filter(
           (existing) => JSON.stringify(existing) !== JSON.stringify(reference),
         );
-        if (targets.length === 1) add(table, { ...reference, table: targets[0].name });
+        if (targets.length === 1)
+          add(table, {
+            ...reference,
+            columns: mapped(table, reference.columns),
+            table: targets[0].name,
+          });
       }
       if (!owners.length || targets.length !== 1)
         errors.push(

@@ -6,11 +6,17 @@ export interface Column {
   identity?: string;
   default?: string;
   computed?: boolean;
+  expression?: string;
+  expressionColumns?: string[];
+  persisted?: boolean;
+  collation?: string;
 }
 export interface ForeignKey {
   columns: string[];
   table: string;
   references: string[];
+  onDelete?: string;
+  onUpdate?: string;
 }
 export interface Table {
   name: string;
@@ -20,6 +26,10 @@ export interface Table {
   foreignKeys: ForeignKey[];
   uniqueKeys?: string[][];
   issues?: string[];
+  warnings?: string[];
+  checks?: { expression: string; columns: string[] }[];
+  origin?: string;
+  columnOrigins?: Record<string, string[]>;
 }
 export interface FD {
   left: string[];

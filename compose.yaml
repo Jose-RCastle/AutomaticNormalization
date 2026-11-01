@@ -1,0 +1,16 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${LOCAL_SQL_PASSWORD:?Run npm run db:local first}
+    ports:
+      - '127.0.0.1:${LOCAL_SQL_PORT:-14333}:1433'
+    volumes:
+      - normalizadb-data:/var/opt/mssql
+      - ./.local/sqlserver/tls:/var/opt/mssql/tls:ro
+      - ./.local/sqlserver/mssql.conf:/var/opt/mssql/mssql.conf:ro
+    restart: unless-stopped
+volumes:
+  normalizadb-data:

@@ -30,7 +30,8 @@
               }
             ],
             "styles": ["src/styles.css"],
-            "webWorkerTsConfig": "tsconfig.worker.json"
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "allowedCommonJsDependencies": ["@dagrejs/dagre", "@dagrejs/graphlib"]
           },
           "configurations": {
             "production": {

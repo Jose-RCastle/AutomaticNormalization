@@ -28,7 +28,9 @@ describe('Flujo automático', () => {
     await app.run();
     fixture.detectChanges();
     expect(app.results[0].stages.map((s) => s.label)).toEqual(['1FN', '2FN', '3FN']);
-    expect(fixture.nativeElement.textContent).toContain('Propuesta automática');
+    expect(fixture.nativeElement.textContent).toContain(
+      'La transformación se calcula a partir de tu entrada',
+    );
     expect(fixture.nativeElement.querySelectorAll('input[type="checkbox"]').length).toBe(0);
   });
   it('conserva el resultado anterior si SQLGlot rechaza una nueva entrada', async () => {
@@ -46,13 +48,14 @@ describe('Flujo automático', () => {
     expect(app.error).toBe('SQL no soportado');
   });
   it('normaliza metadatos SQL Server directamente sin reinterpretar su esquema como SQL', async () => {
-    const fetch = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify([{ ...parsed.tables[0], name: 'ventas.P', sqlName: ['ventas', 'P'] }]),
-        ),
-      );
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...parsed,
+          tables: [{ ...parsed.tables[0], name: 'ventas.P', sqlName: ['ventas', 'P'] }],
+        }),
+      ),
+    );
     const app = TestBed.createComponent(App).componentInstance;
     await app.connect();
     expect(fetch).toHaveBeenCalledTimes(1);
