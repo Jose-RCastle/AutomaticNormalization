@@ -46,14 +46,16 @@ export class App implements OnDestroy {
   }
   get exportErrors() {
     return [
-      ...this.results.flatMap((r) =>
-        r.error
-          ? [`${r.source.name}: ${r.error}`]
-          : r.stages[this.stage]?.error
-            ? [`${r.source.name}: ${r.stages[this.stage].error}`]
-            : [],
-      ),
-      ...this.project.errors,
+      ...new Set([
+        ...this.results.flatMap((r) =>
+          r.error
+            ? [`${r.source.name}: ${r.error}`]
+            : r.stages[this.stage]?.error
+              ? [`${r.source.name}: ${r.stages[this.stage].error}`]
+              : [],
+        ),
+        ...this.project.errors,
+      ]),
     ];
   }
   get examinedRows() {

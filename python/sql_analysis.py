@@ -57,7 +57,9 @@ def add_column(table, node):
     if kind is None and computed is None:
         raise ValueError('Columnas calculadas sin tipo requieren revisión.')
     col = {'name': node.name, 'type': kind.sql(dialect='tsql') if kind else 'CALCULADA',
-           'nullable': not any(isinstance(c.kind, (exp.NotNullColumnConstraint, exp.PrimaryKeyColumnConstraint)) for c in node.constraints)}
+           'nullable': not any(isinstance(c.kind, exp.PrimaryKeyColumnConstraint) or
+                               (isinstance(c.kind, exp.NotNullColumnConstraint) and not c.kind.args.get('allow_null'))
+                               for c in node.constraints)}
     if kind and kind.sql().upper() in ('SERIAL', 'BIGSERIAL', 'SMALLSERIAL'):
         col.update(type={'SERIAL':'INT','BIGSERIAL':'BIGINT','SMALLSERIAL':'SMALLINT'}[kind.sql().upper()], identity='IDENTITY(1,1)', nullable=False)
     for c in node.constraints:
@@ -130,7 +132,19 @@ def profile(table, rows, total=None):
                         observed.append({'left': list(left), 'right': [right]})
             if limited:
                 break
+    list_candidates = []
+    for name in names:
+        for separator in [',', ';', '|']:
+            split_values = [r[name].split(separator) for r in rows if isinstance(r[name], str) and separator in r[name]]
+            if not split_values:
+                continue
+            values = [v.strip() for parts in split_values for v in parts]
+            email = all(re.fullmatch(r'[^\s@,;|]+@[^\s@,;|]+\.[^\s@,;|]+', v) for v in values)
+            phone = all(re.fullmatch(r'[+\d() .-]+', v) and 7 <= len(re.sub(r'\D', '', v)) <= 15 for v in values)
+            if email or phone:
+                list_candidates.append({'column': name, 'kind': 'correos' if email else 'teléfonos', 'separator': separator})
     return {'rowCount': len(rows), 'totalRows': total if total is not None else len(rows), 'sampled': total is not None and total > len(rows), 'searchLimited': limited, 'nulls': nulls,
+            'listCandidates': list_candidates,
             'duplicateRows': len(rows) - len({tuple(row[n] for n in names) for row in rows}),
             'observedRules': observed,
             'search': f'Determinantes de hasta 3 atributos; {visited} combinaciones examinadas. Se excluyen NULL, constantes y determinantes únicos. ' + ('Búsqueda limitada por tiempo o presupuesto; pueden faltar reglas.' if limited else 'Las dependencias observadas describen los registros examinados, no garantizan los futuros.')}
@@ -362,7 +376,8 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             if len(fk['columns']) != len(fk['references']):
                 table['issues'].append('Referencia con distinta cantidad de columnas.')
         table['warnings'] = list(dict.fromkeys(table['warnings']))
-    return {'tables': list(tables.values()), 'warnings': warnings, 'parser': f'SQLGlot {sqlglot.__version__} · {dialect}'}
+    label = {'tsql':'SQL Server (tsql)', 'mysql':'MySQL (mysql)', 'postgres':'PostgreSQL (postgres)', 'sqlite':'SQLite (sqlite)'}[dialect]
+    return {'tables': list(tables.values()), 'warnings': warnings, 'dialect': dialect, 'parser': f'SQLGlot {sqlglot.__version__} · {label}'}
 
 
 if __name__ == '__main__':

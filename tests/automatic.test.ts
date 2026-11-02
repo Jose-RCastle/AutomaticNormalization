@@ -58,6 +58,7 @@ test('DDL sin reglas no certifica semántica; sin clave propone una identidad t�
   assert.equal(missing.error, undefined);
   assert.equal(missing.stages.length, 3);
   assert.ok(missing.stages[0].tables[0].columns.some((c) => c.identity));
+  assert.match(missing.form, /Prerrequisitos pendientes/);
 });
 
 test('varias tablas: conserva una clave alternativa referenciada y reubica las FK entre resultados', () => {
@@ -73,7 +74,7 @@ test('varias tablas: conserva una clave alternativa referenciada y reubica las F
     new Map(results.map((result) => [result.source.name, result.stages[2].tables])),
   );
   assert.deepEqual(project.errors, []);
-  assert.ok(project.tables.some((t) => t.foreignKeys.some((f) => f.table.startsWith('P_3FN'))));
+  assert.ok(project.tables.some((t) => t.foreignKeys.some((f) => f.table === 'P')));
   assert.equal(parseSQL(exportSQL(project.tables)).length, 2);
 });
 test('texto con separadores se conserva atómico; las contradicciones bloquean resultados', () => {

@@ -79,4 +79,13 @@ describe('Flujo automático', () => {
     expect(app.results.length).toBe(0);
     expect(app.busy).toBe(false);
   });
+  it('no duplica el error cuando aparece en el diagnóstico y en el ensamblado del proyecto', async () => {
+    const data = structuredClone(parsed);
+    Object.assign(data.tables[0], { issues: ['La muestra contradice la clave.'] });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(data)));
+    const app = TestBed.createComponent(App).componentInstance;
+    app.sql = 'CREATE TABLE P(Id INT PRIMARY KEY);';
+    await app.run();
+    expect(app.exportErrors).toEqual(['P: La muestra contradice la clave.']);
+  });
 });

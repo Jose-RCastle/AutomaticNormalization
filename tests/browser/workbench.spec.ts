@@ -18,6 +18,7 @@ test('datos aportados generan comparación antes/después y descargas', async ({
   await page.goto('/');
   await paste(page, sql);
   await expect(page.locator('.result-heading')).toContainText('SQL pegado');
+  await expect(page.locator('.result-heading')).toContainText('SQL Server (tsql)');
   await expect(page.locator('.badge')).toContainText('observadas');
   await expect(page.getByRole('button', { name: 'Descargar SQL', exact: true })).toBeEnabled();
   await expect(page.locator('.before img')).toHaveJSProperty('complete', true);
@@ -36,20 +37,20 @@ test('datos aportados generan comparación antes/después y descargas', async ({
   await page.screenshot({ path: '/tmp/normalizadb-comparacion.png', fullPage: true });
 });
 test('UTF-16 y grupos compuestos mantienen las columnas emparejadas', async ({ page }) => {
+  const name = tableName();
   await page.goto('/');
   await page.locator('input[accept=".sql"]').setInputFiles({
     name: 'entrada.sql',
     mimeType: 'text/plain',
     buffer: Buffer.from(
-      '\ufeffCREATE TABLE ' +
-        tableName() +
-        '(Id INT PRIMARY KEY, Producto1 VARCHAR(20), Cantidad1 INT, Producto2 VARCHAR(20), Cantidad2 INT);',
+      `\ufeffCREATE TABLE ${name}(Id INT PRIMARY KEY, Producto1 VARCHAR(20) NULL, Cantidad1 INT NULL, Producto2 VARCHAR(20) NULL, Cantidad2 INT NULL); INSERT INTO ${name} VALUES(1,'A',NULL,NULL,NULL),(2,'B',3,'C',4);`,
       'utf16le',
     ),
   });
   await page.getByRole('button', { name: 'Tablas', exact: true }).click();
   await expect(page.locator('.before article')).toHaveCount(1);
   await expect(page.locator('.after article')).toHaveCount(2);
+  await expect(page.locator('.before tr').filter({ hasText: 'Producto1' })).toContainText('Sí');
   const child = page.locator('.after article').filter({ hasText: 'Posicion' });
   await expect(child).toContainText('Producto');
   await expect(child).toContainText('Cantidad');
@@ -77,6 +78,7 @@ test('reglas adicionales son entrada del usuario y móvil conserva la comparaci�
   await page.goto('/');
   const name = tableName();
   await paste(page, `CREATE TABLE ${name}(Id INT PRIMARY KEY, A INT NOT NULL, B INT NOT NULL);`);
+  await expect(page.locator('.badge')).toHaveText('Claves del esquema');
   await expect(page.getByRole('button', { name: 'Analizar y normalizar' })).toBeEnabled();
   await page.getByText('Reglas del negocio · opcional', { exact: true }).click();
   await page.locator('input[accept=".json"]').setInputFiles({

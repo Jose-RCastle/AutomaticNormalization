@@ -36,5 +36,23 @@ class SqlAnalysisTests(unittest.TestCase):
         self.assertEqual(len(table['rules']), 4)
         self.assertEqual(table['uniqueKeys'], [['NombreMunicipio', 'NumeroParcela']])
 
+    def test_explicit_null_is_not_not_null_in_either_dialect(self):
+        for dialect in ['tsql', 'mysql']:
+            with self.subTest(dialect=dialect):
+                result = analyze_sql('CREATE TABLE Q(Id INT PRIMARY KEY, Optional INT NULL, Required INT NOT NULL); INSERT INTO Q VALUES(1,NULL,3);', dialect)
+                table = result['tables'][0]
+                self.assertEqual([c['nullable'] for c in table['columns']], [False,True,False])
+                self.assertEqual(table['issues'], [])
+                self.assertEqual(result['dialect'], dialect)
+
+    def test_not_null_and_null_primary_keys_still_report_bad_data(self):
+        table = analyze_sql('CREATE TABLE Q(Id INT NULL PRIMARY KEY, Required INT NOT NULL); INSERT INTO Q VALUES(NULL,NULL);')['tables'][0]
+        self.assertFalse(table['columns'][0]['nullable'])
+        self.assertTrue(table['issues'])
+
+    def test_contact_patterns_are_suspicions_not_address_splitting(self):
+        table = analyze_sql("CREATE TABLE Q(Id INT PRIMARY KEY, A VARCHAR(80) NULL, B VARCHAR(80) NULL, C VARCHAR(80)); INSERT INTO Q VALUES(1,'9988-1122, 2550-3344','a@mail.com; b@mail.com','731 Fondren, Houston, TX');")['tables'][0]
+        self.assertEqual({c['column'] for c in table['profile']['listCandidates']}, {'A','B'})
+
 if __name__ == '__main__':
     unittest.main()

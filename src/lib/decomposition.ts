@@ -10,10 +10,15 @@ export function normalize(
 ): Table[] {
   if (table.issues?.length) throw Error(table.issues.join(' '));
   const attributes = table.columns.map((c) => c.name);
+  const diagnosis = analyze(table, rules, true);
+  if (!diagnosis.partial.length && (target === '2FN' || !diagnosis.transitive.length))
+    return [structuredClone(table)];
   let groups: string[][];
+  const generators: FD[] = [];
   if (target === '3FN') {
     const grouped = new Map<string, string[]>();
     for (const rule of cover(rules)) {
+      generators.push(rule);
       const determinant = [...rule.left].sort().join('\0');
       grouped.set(determinant, unique([...(grouped.get(determinant) || rule.left), ...rule.right]));
     }
@@ -35,6 +40,7 @@ export function normalize(
       const relation = { ...table, columns: table.columns.filter((c) => group.includes(c.name)) };
       const violation = analyze(relation, local, true).partial[0];
       if (violation) {
+        generators.push(violation);
         groups.splice(
           i,
           1,
@@ -67,13 +73,47 @@ export function normalize(
     );
   const result: Table[] = groups.map((group, i) => {
     const keys = candidateKeys(group, projection(group, rules));
-    const preferred = keys.find(
-      (k) => k.length === table.primaryKey.length && subset(k, table.primaryKey),
-    );
-    const primaryKey =
-      preferred ||
-      keys.find((k) => k.every((n) => !table.columns.find((c) => c.name === n)?.nullable)) ||
-      keys[0];
+    const same = (a: string[], b: string[]) => a.length === b.length && subset(a, b);
+    // A key is a design choice among mathematically valid candidates. Preserve
+    // provenance; candidateKeys' alphabetical display order must not decide it.
+    const generating = generators
+      .filter((f) => subset([...f.left, ...f.right], group))
+      .map((f) => f.left);
+    const original = [
+      table.primaryKey,
+      ...(table.uniqueKeys || []).filter((k) =>
+        k.every((n) => !table.columns.find((c) => c.name === n)?.nullable),
+      ),
+    ];
+    const eligible = (key: string[]) =>
+      key.every(
+        (n) =>
+          !nulls[n] &&
+          !/\(\s*MAX\s*\)|^(TEXT|NTEXT|IMAGE|XML|JSON|GEOGRAPHY|GEOMETRY|CALCULADA)$/i.test(
+            table.columns.find((c) => c.name === n)!.type,
+          ),
+      );
+    const idLike = (n: string) =>
+      /^(?:id|cod|code|num|key)(?:_|[A-Z]|$)/.test(n) ||
+      /^(?:id|cod|code|num|key)_/i.test(n) ||
+      /(?:id|number|ssn)$/i.test(n);
+    const rank = (key: string[]) => [
+      original.some((k) => same(k, key)) ? 0 : 1,
+      -key.filter((n) => table.primaryKey.includes(n)).length,
+      generating.some((k) => same(k, key)) ? 0 : 1,
+      key.every((n) => idLike(n)) ? 0 : 1,
+      key.every((n) => !table.columns.find((c) => c.name === n)?.nullable) ? 0 : 1,
+      key.length,
+      ...key.map((n) => attributes.indexOf(n)).sort((a, b) => a - b),
+    ];
+    const ranked = [...keys].sort((a, b) => {
+      const ar = rank(a),
+        br = rank(b);
+      for (let j = 0; j < Math.max(ar.length, br.length); j++)
+        if ((ar[j] || 0) !== (br[j] || 0)) return (ar[j] || 0) - (br[j] || 0);
+      return 0;
+    });
+    const primaryKey = ranked.find(eligible) || ranked[0];
     const invalid = primaryKey.filter((n) => nulls[n]);
     if (invalid.length)
       throw Error(
@@ -88,7 +128,8 @@ export function normalize(
       throw Error(
         `SQL Server no puede usar ${unindexable.join(', ')} como clave con su tipo actual. Define un tipo indexable antes de exportar esta etapa.`,
       );
-    const name = `${(table.sqlName?.at(-1) || table.name.replace(/\./g, '_')).slice(0, 100)}_${target}_${i + 1}`;
+    const keyLabel = primaryKey.join('_').replace(/[^\p{L}\p{N}_]/gu, '_');
+    const name = `${(table.sqlName?.at(-1) || table.name.replace(/\./g, '_')).slice(0, 60)}_${target}_${keyLabel.slice(0, 40)}_${i + 1}`;
     const sqlName = [...(table.sqlName?.slice(0, -1) || []), name];
     const localKeys = [
       ...keys.filter((k) => k !== primaryKey),
@@ -131,21 +172,24 @@ export function normalize(
     relation.columns.forEach((c) => {
       if (relation.primaryKey.includes(c.name)) c.nullable = false;
     });
-    for (const other of result)
-      if (
-        relation !== other &&
-        other.primaryKey.length &&
-        subset(
-          other.primaryKey,
-          relation.columns.map((c) => c.name),
-        )
-      ) {
+    for (const other of result) {
+      if (relation === other) continue;
+      const reference = [other.primaryKey, ...(other.uniqueKeys || [])].find(
+        (key) =>
+          key.length &&
+          subset(
+            key,
+            relation.columns.map((c) => c.name),
+          ),
+      );
+      if (reference) {
         relation.foreignKeys.push({
-          columns: other.primaryKey,
+          columns: reference,
           table: other.name,
-          references: other.primaryKey,
+          references: reference,
         });
       }
+    }
   }
   return result;
 }

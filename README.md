@@ -26,7 +26,8 @@ En Windows, crea el entorno con `py -m venv .venv` e instala las dependencias co
 2. PRIMARY KEY y UNIQUE NOT NULL aportan dependencias del esquema.
 3. Los INSERT literales o registros leídos desde SQL Server permiten descubrir dependencias por comparación de particiones de valores. No se infieren reglas por nombres como Cliente o Producto. Los determinantes deben repetirse y presentar al menos dos valores diferentes; se excluyen constantes y atributos con NULL.
 4. Se calculan todas las claves candidatas, dependencias parciales y violaciones de 3FN. La 2FN usa descomposición binaria y la 3FN síntesis de cubierta mínima con inclusión de una clave.
-5. Las tres etapas, sus advertencias, claves, referencias y descargas quedan disponibles. Si una etapa no puede conservar una restricción, queda bloqueada con un motivo y las demás siguen visibles.
+5. La PK se elige conservando las claves declaradas y sus componentes, los determinantes de la descomposición y, como desempate, atributos de identificación y orden del esquema. El orden alfabético del listado de candidatas no decide la PK. Las FK pueden apuntar a una PK o a UNIQUE. Las tablas que ya cumplen la etapa conservan nombre y metadatos; los nuevos nombres incluyen el determinante elegido.
+6. Las tres etapas, sus advertencias, claves, referencias y descargas quedan disponibles. Si una etapa no puede conservar una restricción, queda bloqueada con un motivo y las demás siguen visibles.
 
 **Ningún programa puede deducir todas las reglas del negocio desde cualquier DDL o muestra finita.** Con solo DDL, la forma normal está condicionada a las claves declaradas. Con registros, las dependencias descubiertas son hipótesis sobre esos registros. El diagnóstico muestra esa procedencia y no certifica filas futuras.
 
@@ -40,9 +41,9 @@ Si se conocen dependencias adicionales, pueden incluirse como comentarios `-- @f
 - Conserva IDENTITY, DEFAULT, COLLATE, CHECK y expresiones calculadas cuando sus columnas permanecen juntas. Conserva UNIQUE nullable aunque no sea una clave candidata relacional. Las opciones físicas de almacenamiento, índices no únicos/filtrados, procedimientos y triggers no se reproducen como parte del esquema normalizado.
 - INSERT VALUES se interpreta sin ejecutarse. Admite literales, NULL, conversiones de literales e identidades implícitas. INSERT SELECT y expresiones que requieren ejecución se omiten del perfil con advertencia. No se ejecuta el SQL recibido.
 - Los perfiles examinan hasta 10 000 registros por tabla. Se señala el muestreo; la búsqueda usa determinantes de hasta tres atributos, un presupuesto de 10 000 combinaciones y ocho segundos por perfil. La búsqueda relacional exacta tiene un presupuesto de 25 000 combinaciones. Alcanzar un límite se comunica y no equivale a demostrar ausencia de dependencias.
-- Sin clave declarada se propone una columna técnica BIGINT IDENTITY con nombre libre. No se inventa una clave de negocio a partir de valores accidentalmente únicos.
+- Sin clave declarada, el diagnóstico inicial indica prerrequisitos pendientes; se propone una columna técnica BIGINT IDENTITY con nombre libre. No se inventa una clave de negocio a partir de valores accidentalmente únicos.
 - Los grupos numerados se proponen como tablas hijas con posición. Los grupos con los mismos índices se mantienen juntos (por ejemplo Producto1/Cantidad1 y Producto2/Cantidad2). Es una hipótesis de estructura explícita, no una deducción de semántica. Los grupos que participan en restricciones que no pueden trasladarse se conservan con advertencia.
-- Una coma, un punto y coma o una barra en texto no provoca una división automática ni bloquea la tabla. Esos valores se conservan escalares. Listas o relaciones anidadas cuya semántica no esté descrita necesitan definirse antes de descomponerlas.
+- Una coma, un punto y coma o una barra en texto no provoca una división automática ni bloquea la tabla. Esos valores se conservan escalares. Patrones homogéneos de correos o teléfonos separados se avisan como posible multivalor y no se certifica su atomicidad; las direcciones con comas no se interpretan como listas por ese motivo. Listas o relaciones anidadas cuya semántica no esté descrita necesitan definirse antes de descomponerlas.
 - Si los datos contienen NULL en una columna que tendría que convertirse en clave, se bloquea esa etapa. No se eliminan filas, no se ocultan los NULL ni se asegura una reconstrucción sin pérdida que esos datos no permitan.
 
 ## Conectar SQL Server
@@ -82,3 +83,5 @@ npm run test:e2e
 ```
 
 Puede indicarse `PLAYWRIGHT_CHROMIUM_PATH` para usar Chromium del sistema. El lector manual anterior se conserva para regresiones; la aplicación utiliza SQLGlot. La disponibilidad de SQL Server real debe comprobarse en la instalación donde se ejecutará; los recorridos del navegador no sustituyen esa conexión.
+
+Si VS Code indica que faltan los tipos de Node, actualiza esta rama y ejecuta `npm ci --include=dev` (en PowerShell `npm.cmd ci --include=dev`). `@types/node` es una dependencia directa de desarrollo. Abre en VS Code la raíz que contiene `package.json` y utiliza la versión de TypeScript del espacio de trabajo; no elimines `types: ["node"]` de la configuración.

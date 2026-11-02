@@ -14,6 +14,7 @@ export interface ParsedTable extends Table {
     nulls: Record<string, number>;
     duplicateRows: number;
     possibleLists?: string[];
+    listCandidates?: { column: string; kind: string; separator: string }[];
     observedRules: FD[];
     search: string;
   };
@@ -44,10 +45,19 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
   try {
     if (source.issues?.length) throw Error(source.issues.join(' '));
     const table = structuredClone(source);
+    const hasUsableKey =
+      source.primaryKey.length > 0 ||
+      (source.uniqueKeys || []).some(
+        (k) => k.length && k.every((n) => source.columns.some((c) => c.name === n && !c.nullable)),
+      );
     table.origin = source.name;
     if (table.profile?.possibleLists?.length)
       assumptions.push(
         `Texto con separadores en ${table.profile.possibleLists.join(', ')}: se conserva como valor escalar. Una coma en una dirección no demuestra que exista una lista.`,
+      );
+    for (const candidate of table.profile?.listCandidates || [])
+      assumptions.push(
+        `Posible multivalor en ${candidate.column}: los elementos separados por «${candidate.separator}» tienen patrón de ${candidate.kind}. La atomicidad necesita revisión; no se han separado automáticamente.`,
       );
     if (!table.primaryKey.length) {
       const key = table.uniqueKeys?.find((key) =>
@@ -138,7 +148,11 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
     result.diagnosis = analyze(parent, rules, true);
     result.form = children.length
       ? 'No normalizada (grupo repetido supuesto)'
-      : result.diagnosis.form + ' bajo las reglas disponibles';
+      : !hasUsableKey
+        ? 'Prerrequisitos pendientes (sin clave declarada)'
+        : table.profile?.listCandidates?.length
+          ? 'Sin confirmar 1FN (posible multivalor)'
+          : result.diagnosis.form + ' bajo las reglas disponibles';
     result.stages.push({
       label: '1FN',
       explanation: children.length
@@ -152,7 +166,10 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
         // Conservar las FK externas; assembleProject las resolverá sobre el conjunto completo.
         for (const relation of tables) {
           for (const foreign of parent.foreignKeys)
-            if (foreign.columns.every((name) => relation.columns.some((c) => c.name === name)))
+            if (
+              foreign.columns.every((name) => relation.columns.some((c) => c.name === name)) &&
+              !relation.foreignKeys.some((f) => JSON.stringify(f) === JSON.stringify(foreign))
+            )
               relation.foreignKeys.push(foreign);
         }
         const remaining = children.map((child) => {
