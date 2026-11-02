@@ -14,6 +14,22 @@ npm run dev
 
 Angular escucha en el puerto 4200 y redirige `/api` al servidor Express en 127.0.0.1:3001. SQLGlot se instala en `.venv` con versión fijada. `SQLGLOT_PYTHON` permite indicar otro ejecutable Python con esa dependencia instalada. Los comandos se ejecutan desde la raíz del repositorio. `Ctrl+C` detiene ambos servidores. No es una configuración de producción.
 
+## Instalación en Windows
+
+Instala Python 3.10 o superior desde [python.org](https://www.python.org/downloads/), con el lanzador `py` o la opción **Add python.exe to PATH**, y abre una terminal nueva. Comprueba `py -3 --version` o `python --version`. Si Windows solo muestra un acceso a Microsoft Store, eso no confirma que Python esté instalado.
+
+Después, desde la carpeta del repositorio y con los servidores detenidos:
+
+```sh
+npm ci
+npm run setup:sql
+npm run dev
+```
+
+El instalador detecta `py -3`, `python` o `python3` y usa `.venv\Scripts\python.exe` en Windows; en Linux/macOS usa `.venv/bin/python`. No necesitas activar el entorno virtual. El ejecutor del servidor y las pruebas usan esa misma detección de ruta y UTF-8 para nombres con acentos.
+
+Si ves `.env not found`, puedes continuar con los archivos SQL. Solo necesitas `.env` para **Leer SQL Server**. El aviso del servidor Angular es informativo y no causa el fallo de SQLGlot.
+
 ## Probar el ejemplo de clase
 
 1. Pulsa **Probar PARCELAS de clase**. El archivo es `examples/parcelas.sql`.
@@ -75,3 +91,5 @@ PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
 Consulta [arquitectura](docs/arquitectura.md) y [requisitos](docs/requisitos-proyecto.md). El lector T-SQL anterior permanece para pruebas de regresión y utilidades heredadas; **el flujo nuevo de la aplicación utiliza SQLGlot**.
+
+La resolución `overrides` de `@angular/build` usa Vite 8.3.5 para corregir los avisos de seguridad de Vite 8.3.0 sin forzar cambios de Angular. Se valida con compilación y pruebas de navegador.

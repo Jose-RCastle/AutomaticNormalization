@@ -15,8 +15,8 @@
     "format:check": "prettier --check src server tests scripts docs README.md package.json angular.json \"tsconfig*.json\" playwright.config.ts",
     "sample:large": "node scripts/generate-large-sql.mjs",
     "test:e2e": "playwright test",
-    "setup:sql": "python3 -m venv .venv && .venv/bin/python -m pip install -r python/requirements.txt",
-    "test:sql": ".venv/bin/python -m unittest discover -s python -p \"test_*.py\""
+    "setup:sql": "node --import tsx scripts/setup-sql.ts",
+    "test:sql": "node --import tsx scripts/test-sql.ts"
   },
   "private": true,
   "packageManager": "npm@11.9.0",
@@ -39,7 +39,7 @@
     "@playwright/test": "1.64.1",
     "@types/express": "5.0.3",
     "@types/mssql": "9.1.8",
-    "concurrently": "9.2.1",
+    "concurrently": "9.2.5",
     "jsdom": "^30.0.0",
     "prettier": "^3.8.1",
     "tsx": "4.20.6",
@@ -48,5 +48,10 @@
   },
   "engines": {
     "node": "^24.15.0"
+  },
+  "overrides": {
+    "@angular/build": {
+      "vite": "8.3.5"
+    }
   }
 }

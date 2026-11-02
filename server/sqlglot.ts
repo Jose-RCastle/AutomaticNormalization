@@ -1,13 +1,13 @@
+import { projectRoot, sqlglotPython } from '../scripts/python-runtime';
 import { spawn } from 'node:child_process';
 
 /** Un proceso aislado por análisis; entrada por stdin, nunca por shell. */
 export function parseWithSqlGlot(sql: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.env['SQLGLOT_PYTHON'] || '.venv/bin/python',
-      ['python/sql_analysis.py'],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    const child = spawn(sqlglotPython(), ['-X', 'utf8', 'python/sql_analysis.py'], {
+      cwd: projectRoot,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     let output = '',
       errors = '';
     const timer = setTimeout(() => {
@@ -26,7 +26,11 @@ export function parseWithSqlGlot(sql: string): Promise<unknown> {
     });
     child.on('error', () => {
       clearTimeout(timer);
-      reject(Error('No se pudo iniciar SQLGlot. Ejecuta npm run setup:sql.'));
+      reject(
+        Error(
+          'No se pudo iniciar Python para SQLGlot. Instala Python 3.10+ y ejecuta npm run setup:sql; después reinicia npm run dev.',
+        ),
+      );
     });
     child.stdin.on('error', () => {});
     child.on('close', (code) => {
@@ -38,7 +42,11 @@ export function parseWithSqlGlot(sql: string): Promise<unknown> {
       } catch {
         reject(
           Error(
-            errors ? 'SQLGlot no produjo un resultado válido.' : 'El análisis fue interrumpido.',
+            errors.includes('No module named') && errors.includes('sqlglot')
+              ? 'Python está disponible, pero falta SQLGlot. Ejecuta npm run setup:sql y reinicia npm run dev.'
+              : errors
+                ? 'SQLGlot no produjo un resultado válido.'
+                : 'El análisis fue interrumpido.',
           ),
         );
       }
