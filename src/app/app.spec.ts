@@ -31,7 +31,7 @@ describe('Flujo automático', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'La transformación se calcula a partir de tu entrada',
     );
-    expect(fixture.nativeElement.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+    expect(fixture.nativeElement.textContent).toContain('Declarar una dependencia del negocio');
   });
   it('conserva el resultado anterior si SQLGlot rechaza una nueva entrada', async () => {
     const fetch = vi

@@ -161,6 +161,8 @@ export interface ConnectionInput {
   user: string;
   password: string;
   port?: number;
+  auth?: 'sql' | 'ntlm';
+  domain?: string;
 }
 export async function readSchema(
   connection?: ConnectionInput,
@@ -174,6 +176,18 @@ export async function readSchema(
     database: connection?.database || process.env['DB_DATABASE']!,
     user: connection?.user || process.env['DB_USER']!,
     password: connection?.password || process.env['DB_PASSWORD']!,
+    ...((connection ? connection.auth === 'ntlm' : process.env['DB_AUTH'] === 'ntlm')
+      ? {
+          authentication: {
+            type: 'ntlm',
+            options: {
+              domain: connection?.domain || process.env['DB_DOMAIN'] || '',
+              userName: connection?.user || process.env['DB_USER']!,
+              password: connection?.password || process.env['DB_PASSWORD']!,
+            },
+          },
+        }
+      : {}),
     port: Number(connection?.port || process.env['DB_PORT'] || 1433),
     options: {
       encrypt: true,

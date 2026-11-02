@@ -92,7 +92,15 @@ export function createApp(configured = isConfigured, loadSchema = readSchema) {
         user: input.user,
         password: input.password,
         port: Number(input.port || 1433),
+        auth: input.auth === 'ntlm' ? 'ntlm' : 'sql',
+        domain: typeof input.domain === 'string' ? input.domain : undefined,
       };
+      if (connection.auth === 'ntlm' && !connection.domain?.trim()) {
+        response.status(400).json({
+          error: 'La autenticación Windows NTLM necesita el dominio, usuario y contraseña.',
+        });
+        return;
+      }
     } else if (!configured()) {
       response
         .status(503)
@@ -128,10 +136,9 @@ export function createApp(configured = isConfigured, loadSchema = readSchema) {
         rules,
       );
       response.json({ tables, warnings: [], parser: 'SQL Server · catálogo y registros' });
-    } catch {
+    } catch (error) {
       response.status(502).json({
-        error:
-          'No se pudo leer SQL Server. Verifica servidor y puerto, credenciales, permisos VIEW DEFINITION / SELECT y certificado TLS. Para una instancia local usa npm run db:local y reinicia la API.',
+        error: connectionError(error),
       });
     } finally {
       reading = false;
@@ -153,4 +160,14 @@ export function createApp(configured = isConfigured, loadSchema = readSchema) {
     },
   );
   return app;
+}
+function connectionError(error: unknown) {
+  const message = String((error as Error)?.message || '');
+  if (/certificate|self.signed|tls|cert_/i.test(message))
+    return 'SQL Server rechazó la validación TLS. Configura un certificado confiable o DB_CA_FILE con la CA privada y reinicia la API. La verificación TLS sigue activada.';
+  if (/login|ELOGIN|authentication/i.test(message))
+    return 'SQL Server rechazó la autenticación. Verifica el modo SQL/NTLM, usuario, contraseña, dominio y acceso a la base.';
+  if (/timeout|connect|ESOCKET|ETIMEOUT/i.test(message))
+    return 'No se pudo alcanzar SQL Server. Verifica servidor, puerto, servicio activo y acceso de red.';
+  return 'No se pudo leer SQL Server. Revisa conexión, permisos VIEW DEFINITION / SELECT y configuración TLS. La API no devuelve credenciales ni detalles internos.';
 }

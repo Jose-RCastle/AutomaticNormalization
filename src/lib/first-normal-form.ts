@@ -58,7 +58,15 @@ export function numberedNormalForm(
 ): Table[] {
   if (groups.length === 1) {
     const [parent, child] = firstNormalForm(table, groups[0].columns);
-    child.columnOrigins = { [child.columns.at(-1)!.name]: groups[0].columns };
+    const value = child.columns.at(-1)!;
+    let label = groups[0].name;
+    while (table.primaryKey.includes(label)) label += '_';
+    value.name = label;
+    value.nullable = false;
+    child.columnOrigins = { [value.name]: groups[0].columns };
+    child.warnings = [
+      'En la representación de valores se omiten posiciones NULL. La posición conserva el orden y admite repeticiones; UNIQUE por propietario requiere confirmación.',
+    ];
     child.name = table.name.replace(/\./g, '_').slice(0, 90) + '_' + groups[0].name + '_Valores';
     return [parent, child];
   }
@@ -92,6 +100,39 @@ export function numberedNormalForm(
     primaryKey: [...table.primaryKey, position],
     foreignKeys: [{ columns: table.primaryKey, table: table.name, references: table.primaryKey }],
     columnOrigins: Object.fromEntries(groups.map((g) => [g.name, g.columns])),
+  };
+  return [parent, child];
+}
+
+export function listNormalForm(table: Table, column: string, separator: string): Table[] {
+  const c = table.columns.find((c) => c.name === column);
+  if (!c || !separator || separator.length > 3 || table.primaryKey.includes(column))
+    throw Error('Selecciona una columna no clave y un separador válido.');
+  if (
+    table.foreignKeys.some((f) => f.columns.includes(column)) ||
+    (table.uniqueKeys || []).some((k) => k.includes(column)) ||
+    (table.checks || []).some((k) => k.columns.includes(column))
+  )
+    throw Error('La lista participa en restricciones que requieren una traducción explícita.');
+  const parent = { ...table, columns: table.columns.filter((c) => c.name !== column) };
+  let position = 'Posicion';
+  while (table.primaryKey.includes(position) || column === position) position += '_';
+  const child: Table = {
+    name: table.name.replace(/\./g, '_').slice(0, 70) + '_' + column.slice(0, 35),
+    origin: table.origin || table.name,
+    columns: [
+      ...table.columns
+        .filter((c) => table.primaryKey.includes(c.name))
+        .map((c) => ({ name: c.name, type: c.type, nullable: false, collation: c.collation })),
+      { name: position, type: 'INT', nullable: false },
+      { name: column, type: c.type, nullable: false, collation: c.collation },
+    ],
+    primaryKey: [...table.primaryKey, position],
+    foreignKeys: [{ columns: table.primaryKey, table: table.name, references: table.primaryKey }],
+    listSource: { column, separator },
+    warnings: [
+      'Lista confirmada: cada elemento no vacío ocupa una fila; no se ejecutó traslado de registros.',
+    ],
   };
   return [parent, child];
 }

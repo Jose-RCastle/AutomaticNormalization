@@ -10,7 +10,7 @@ import { cardinality, exportSVG } from '../lib/exporters';
         @if (tables.length) {
           <img
             [src]="diagram"
-            [style.width.%]="zoom"
+            [style.width]="fit ? zoom + '%' : (width * zoom) / 100 + 'px'"
             [style.max-width.px]="(width * zoom) / 100"
             alt="Diagrama de tablas con claves y cardinalidades"
           />
@@ -189,6 +189,7 @@ export class SchemaView implements OnChanges {
   @Input() tables: Table[] = [];
   @Input() mode: 'diagram' | 'tables' = 'diagram';
   @Input() zoom = 100;
+  @Input() fit = true;
   diagram = '';
   width = 440;
   readonly cardinality = cardinality;

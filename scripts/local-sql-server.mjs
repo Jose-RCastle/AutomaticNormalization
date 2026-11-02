@@ -117,7 +117,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
   if (!ready) throw Error('SQL Server no inició. Revisa docker compose logs sqlserver.');
-  const env = `DB_SERVER=localhost\nDB_PORT=${connection.port}\nDB_DATABASE=NormalizaDB\nDB_USER=sa\nDB_PASSWORD=${connection.password}\nDB_CA_FILE=${resolve(tls, 'ca.pem')}\n`;
+  const env = `DB_SERVER=localhost\nDB_PORT=${connection.port}\nDB_DATABASE=NormalizaDB\nDB_AUTH=sql\nDB_USER=sa\nDB_PASSWORD=${connection.password}\nDB_CA_FILE=${resolve(tls, 'ca.pem')}\n`;
   await writeFile('.env.sqlserver.local', env, { mode: 0o600 });
   if (!(await exists('.env'))) await writeFile('.env', env, { mode: 0o600 });
   console.log(

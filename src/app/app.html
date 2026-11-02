@@ -92,6 +92,19 @@
           >
         </div>
         @if (customConnection) {
+          <label
+            >Autenticación<select [(ngModel)]="connection.auth" [disabled]="busy">
+              <option value="sql">SQL Server</option>
+              <option value="ntlm">Windows NTLM · dominio, usuario y contraseña</option>
+            </select></label
+          >
+          @if (connection.auth === 'ntlm') {
+            <label>Dominio<input [(ngModel)]="connection.domain" [disabled]="busy" /></label>
+            <p class="subtle">
+              NTLM usa las credenciales indicadas. No utiliza automáticamente la sesión de Windows
+              del navegador.
+            </p>
+          }
           <div class="connection-grid">
             <label
               >Servidor<input
@@ -244,6 +257,10 @@
           >
         }
       </div>
+      <div class="actions">
+        <button (click)="fitDiagram = false; zoom = 100">Tamaño legible</button
+        ><button (click)="fitDiagram = true; zoom = 100">Ajustar al panel</button>
+      </div>
       <div class="compare-grid">
         <section class="pane before">
           <header>
@@ -260,7 +277,7 @@
               SVG ↓
             </button>
           </header>
-          <schema-view [tables]="beforeTables" [mode]="view" [zoom]="zoom" />
+          <schema-view [tables]="beforeTables" [mode]="view" [zoom]="zoom" [fit]="fitDiagram" />
         </section>
         <section class="pane after">
           <header>
@@ -274,13 +291,223 @@
               }
             </div>
           </header>
-          <schema-view [tables]="afterTables" [mode]="view" [zoom]="zoom" />
+          <schema-view [tables]="afterTables" [mode]="view" [zoom]="zoom" [fit]="fitDiagram" />
         </section>
       </div>
       <div class="legend">
         PK · clave primaria <span>FK · clave foránea</span><span>UQ · restricción única</span
         ><span>0..1 · opcional / única</span><span>0..N · varios registros</span>
       </div>
+    </section>
+    <section class="review-card">
+      <h2>Revisa la propuesta antes de exportar</h2>
+      <p>
+        El análisis y la propuesta son automáticos. Una coincidencia en la muestra no declara una
+        regla del negocio. Confirma únicamente lo que sabes que debe cumplirse.
+      </p>
+      <label
+        >Tabla a revisar<select
+          id="review-table"
+          [(ngModel)]="selected"
+          (ngModelChange)="leftColumns = []; rightColumns = []; manualListColumn = ''"
+        >
+          @for (r of results; track r.source.name; let i = $index) {
+            <option [ngValue]="i">{{ r.source.name }}</option>
+          }
+        </select></label
+      >
+      @if (current; as r) {
+        <div class="prerequisites">
+          @for (p of r.prerequisites; track p.label) {
+            <div>
+              <b>{{ p.label }}</b
+              ><span>{{
+                p.status === 'passed' ? 'Pasa' : p.status === 'failed' ? 'Falla' : 'Sin confirmar'
+              }}</span
+              ><small>{{ p.detail }}</small>
+            </div>
+          }
+        </div>
+        <label class="check"
+          ><input
+            type="checkbox"
+            [(ngModel)]="decision.atomicConfirmed"
+            (ngModelChange)="reviewDirty = true"
+            [disabled]="busy"
+          />
+          Confirmo valores atómicos, excepto las listas que separo abajo.</label
+        >
+        <label class="check"
+          ><input
+            type="checkbox"
+            [(ngModel)]="decision.rulesComplete"
+            (ngModelChange)="reviewDirty = true"
+            [disabled]="busy"
+          />
+          Confirmo que las reglas declaradas describen las dependencias del negocio. Si no hay
+          reglas adicionales, las claves del esquema son suficientes.</label
+        >
+        @if (!r.source.primaryKey.length) {
+          <h3>Clave de la tabla</h3>
+          <p>
+            Estos valores fueron únicos en la muestra; confirma si también lo son en el negocio.
+          </p>
+          <select
+            [ngModel]="keyValue(decision.primaryKey || [])"
+            (ngModelChange)="chooseKey($event)"
+            [disabled]="busy"
+          >
+            <option value="[]">Sin elegir</option>
+            @for (k of r.source.profile?.keyCandidates || []; track $index) {
+              <option [value]="keyValue(k)">{{ k.join(', ') }} · única en la muestra</option>
+            }
+          </select>
+          <label
+            >Otra clave (una o varias columnas)<select multiple [(ngModel)]="keyColumns">
+              @for (c of r.source.columns; track c.name) {
+                <option [value]="c.name">{{ c.name }}</option>
+              }
+            </select></label
+          ><button
+            [disabled]="busy || !keyColumns.length"
+            (click)="chooseKey(keyValue(keyColumns))"
+          >
+            Confirmar esta clave
+          </button>
+          <button
+            (click)="
+              decision.syntheticKey = true; decision.primaryKey = undefined; reviewDirty = true
+            "
+            [disabled]="busy"
+          >
+            Confirmar creación de clave técnica
+          </button>
+        }
+        <details>
+          <summary>Pasos del motor relacional</summary>
+          <ol>
+            <li>Calcular clausuras y claves candidatas.</li>
+            <li>Obtener una cubierta mínima de dependencias.</li>
+            <li>
+              Descomponer por dependencias parciales para 2FN y sintetizar 3FN incluyendo una clave.
+            </li>
+            <li>Contrastar reunión de la muestra y estabilidad de la segunda normalización.</li>
+          </ol>
+        </details>
+        <h3>Dependencias observadas</h3>
+        <p>
+          Las compuestas quedan pendientes hasta confirmarlas. Las simples recomendadas solo
+          producen una propuesta; no se exportan sin confirmación.
+        </p>
+        <button (click)="acceptRecommended()" [disabled]="busy">
+          Confirmar simples recomendadas de esta tabla
+        </button>
+        <div class="rule-list">
+          @for (fd of r.suggestedRules; track ruleId(fd)) {
+            <label class="rule-row"
+              ><input
+                type="checkbox"
+                [checked]="isAccepted(fd)"
+                (change)="toggleRule(fd, $any($event.target).checked)"
+                [disabled]="busy"
+              /><code>{{ fd.left.join(', ') }} → {{ fd.right.join(', ') }}</code
+              ><small
+                >{{ fd.evidence?.rows || r.source.profile?.rowCount || 0 }} filas ·
+                {{ fd.evidence?.groups || '?' }} valores de determinante ·
+                {{ fd.evidence?.repeatedGroups || 0 }} grupos repetidos{{
+                  fd.left.length > 1 ? ' · compuesta, pendiente de aprobación' : ''
+                }}</small
+              ></label
+            >
+          } @empty {
+            <p>
+              No se encontraron dependencias con evidencia suficiente. Puedes declararlas abajo.
+            </p>
+          }
+        </div>
+        <h3>Declarar una dependencia del negocio</h3>
+        <div class="dependency-grid">
+          <label
+            >Determinantes<select multiple [(ngModel)]="leftColumns" [disabled]="busy">
+              @for (c of r.source.columns; track c.name) {
+                <option [value]="c.name">{{ c.name }}</option>
+              }
+            </select></label
+          ><label
+            >Dependientes<select multiple [(ngModel)]="rightColumns" [disabled]="busy">
+              @for (c of r.source.columns; track c.name) {
+                <option [value]="c.name">{{ c.name }}</option>
+              }
+            </select></label
+          >
+        </div>
+        <button (click)="declareRule()" [disabled]="busy">Añadir regla confirmada</button>
+        @for (fd of decision.acceptedRules || []; track ruleId(fd)) {
+          <p>
+            <code>{{ fd.left.join(', ') }} → {{ fd.right.join(', ') }}</code>
+            <button (click)="toggleRule(fd, false)" [disabled]="busy">Quitar</button>
+          </p>
+        }
+        <h3>Valores multivalor</h3>
+        @for (c of r.source.profile?.listCandidates || []; track $index) {
+          <div class="list-choice">
+            <p>
+              <b>{{ c.column }}</b> · posible lista de {{ c.kind }} · separador «{{ c.separator }}»
+            </p>
+            <label class="check"
+              ><input
+                type="checkbox"
+                [checked]="listConfirmed(c.column)"
+                (change)="confirmList(c.column, c.separator, $any($event.target).checked)"
+                [disabled]="busy"
+              />
+              Confirmo que es una lista; crear tabla hija.</label
+            ><label class="check"
+              ><input
+                type="checkbox"
+                [checked]="decision.scalarColumns?.includes(c.column) || false"
+                (change)="confirmScalar(c.column, $any($event.target).checked)"
+                [disabled]="busy"
+              />
+              Es texto escalar; conservarlo.</label
+            >
+          </div>
+        }
+        <div class="dependency-grid">
+          <label
+            >Otra columna<select [(ngModel)]="manualListColumn">
+              <option value="">Seleccionar</option>
+              @for (c of r.source.columns; track c.name) {
+                <option [value]="c.name">{{ c.name }}</option>
+              }
+            </select></label
+          ><label>Separador<input [(ngModel)]="manualSeparator" maxlength="3" /></label>
+        </div>
+        <button
+          [disabled]="busy || !manualListColumn || !manualSeparator"
+          (click)="confirmList(manualListColumn, manualSeparator, true)"
+        >
+          Confirmar otra lista
+        </button>
+        @for (l of decision.lists || []; track l.column) {
+          <label class="check"
+            ><input type="checkbox" [(ngModel)]="l.unique" (ngModelChange)="reviewDirty = true" />
+            {{ l.column }}: valores únicos por propietario (prohibir repeticiones).</label
+          >
+        }
+        @if (r.verification; as v) {
+          <p class="notice">
+            Reunión de la muestra: {{ v.status }} · {{ v.rows }} filas. {{ v.message }}
+            {{ r.idempotent ? 'La segunda normalización conserva el resultado.' : '' }}
+          </p>
+        }
+        <button class="primary" (click)="applyReview()" [disabled]="busy">
+          Aplicar decisiones y recalcular
+        </button>
+        @if (reviewDirty) {
+          <span class="subtle"> Cambios sin aplicar</span>
+        }
+      }
     </section>
     @if (exportErrors.length) {
       <div class="notice error" role="alert">
@@ -360,6 +587,24 @@
           </div>
         }
       </details>
+    </section>
+    <section class="review-card">
+      <h3>Nombres y destino de salida</h3>
+      <label
+        >Esquema de destino separado<input [(ngModel)]="outputSchema" placeholder="norm"
+      /></label>
+      <p>
+        El destino debe estar vacío. Puedes renombrar las entidades; sus referencias se actualizan.
+      </p>
+      @for (t of project.tables; track $index) {
+        <label
+          >{{ t.name
+          }}<input
+            [value]="t.name"
+            (change)="renameTable(t.name, $any($event.target).value)"
+            maxlength="128"
+        /></label>
+      }
     </section>
     <section class="downloads">
       <div>

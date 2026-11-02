@@ -6,6 +6,9 @@ import { Table } from '../lib/models';
 import { exportSQL, exportSVG, exportMermaid } from '../lib/exporters';
 import { assembleProject, ProjectModel } from '../lib/project';
 import { SchemaView } from './schema-view';
+import { FD } from '../lib/models';
+import { recommendedRules, ReviewDecisions, ruleId } from '../lib/review';
+import { relationshipProblems } from '../lib/validation';
 
 @Component({
   selector: 'app-root',
@@ -18,6 +21,7 @@ export class App implements OnDestroy {
   private readonly cdr = inject(ChangeDetectorRef);
   private controller?: AbortController;
   private request = 0;
+  private lastInput = '';
   sql = '';
   dialect = 'tsql';
   busy = false;
@@ -35,12 +39,104 @@ export class App implements OnDestroy {
   filter = '';
   customConnection = false;
   includeData = true;
-  connection = { server: '', port: 1433, database: '', user: '', password: '' };
+  connection = {
+    server: '',
+    port: 1433,
+    database: '',
+    user: '',
+    password: '',
+    auth: 'sql',
+    domain: '',
+  };
   domainRules: Record<string, string> = {};
   rulesName = '';
   beforeTables: Table[] = [];
   afterTables: Table[] = [];
   project: ProjectModel = { tables: [], warnings: [], errors: [], completed: 0 };
+  sources: ParsedTable[] = [];
+  decisions: Record<string, ReviewDecisions> = {};
+  reviewDirty = false;
+  leftColumns: string[] = [];
+  rightColumns: string[] = [];
+  keyColumns: string[] = [];
+  outputNames: Record<string, string> = {};
+  outputSchema = 'norm';
+  manualListColumn = '';
+  manualSeparator = ',';
+  fitDiagram = true;
+  renameTable(name: string, value: string) {
+    const original = Object.entries(this.outputNames).find(([, v]) => v === name)?.[0] || name;
+    this.outputNames[original] = value.trim();
+    this.refreshProject();
+  }
+  readonly ruleId = ruleId;
+  get decision(): ReviewDecisions {
+    const name = this.current?.source.name || '';
+    return (this.decisions[name] ||= {});
+  }
+  isAccepted(f: FD) {
+    return this.decision.acceptedRules?.some((r) => ruleId(r) === ruleId(f)) || false;
+  }
+  toggleRule(f: FD, checked: boolean) {
+    const d = this.decision;
+    d.acceptedRules = (d.acceptedRules || []).filter((r) => ruleId(r) !== ruleId(f));
+    d.rejectedRules = (d.rejectedRules || []).filter((id) => id !== ruleId(f));
+    if (checked) d.acceptedRules.push(structuredClone(f));
+    else d.rejectedRules.push(ruleId(f));
+    this.reviewDirty = true;
+  }
+  acceptRecommended() {
+    for (const f of recommendedRules(this.current!.source, this.current!.suggestedRules))
+      this.toggleRule(f, true);
+  }
+  declareRule() {
+    if (!this.leftColumns.length || !this.rightColumns.length) {
+      this.error = 'Selecciona determinantes y dependientes.';
+      return;
+    }
+    this.toggleRule({ left: [...this.leftColumns], right: [...this.rightColumns] }, true);
+    this.leftColumns = [];
+    this.rightColumns = [];
+  }
+  chooseKey(text: string) {
+    this.decision.primaryKey = text ? JSON.parse(text) : undefined;
+    this.decision.syntheticKey = false;
+    this.reviewDirty = true;
+  }
+  keyValue(key: string[]) {
+    return JSON.stringify(key);
+  }
+  listConfirmed(column: string) {
+    return this.decision.lists?.some((l) => l.column === column) || false;
+  }
+  confirmList(column: string, separator: string, checked: boolean) {
+    this.decision.lists = (this.decision.lists || []).filter((l) => l.column !== column);
+    if (checked) this.decision.lists.push({ column, separator });
+    if (checked)
+      this.decision.scalarColumns = (this.decision.scalarColumns || []).filter((n) => n !== column);
+    this.reviewDirty = true;
+  }
+  confirmScalar(column: string, checked: boolean) {
+    this.decision.scalarColumns = (this.decision.scalarColumns || []).filter((n) => n !== column);
+    if (checked) this.decision.scalarColumns.push(column);
+    if (checked)
+      this.decision.lists = (this.decision.lists || []).filter((l) => l.column !== column);
+    this.reviewDirty = true;
+  }
+  async applyReview() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = '';
+    try {
+      await this.analyzeTables(this.sources);
+      this.reviewDirty = false;
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.busy = false;
+      this.cdr.markForCheck();
+    }
+  }
   get current() {
     return this.results[this.selected];
   }
@@ -54,7 +150,12 @@ export class App implements OnDestroy {
               ? [`${r.source.name}: ${r.stages[this.stage].error}`]
               : [],
         ),
+        ...this.results.flatMap((r) => r.pending.map((p) => r.source.name + ': ' + p)),
+        ...(this.reviewDirty ? ['Hay decisiones sin aplicar.'] : []),
         ...this.project.errors,
+        ...this.warnings
+          .filter((w) => w.startsWith('Sentencia no interpretada:'))
+          .map((w) => 'Revisa el SQL omitido antes de exportar: ' + w),
       ]),
     ];
   }
@@ -75,6 +176,19 @@ export class App implements OnDestroy {
       this.results.map((r) => r.source),
       new Map(this.results.map((r) => [r.source.name, r.stages[this.stage]?.tables || []])),
     );
+    const renames = new Map(
+      this.project.tables.map((t) => [t.name, this.outputNames[t.name]?.trim() || t.name]),
+    );
+    for (const t of this.project.tables) {
+      const original = t.name;
+      t.name = renames.get(original)!;
+      if (t.name !== original) t.sqlName = [...(t.sqlName?.slice(0, -1) || []), t.name];
+      for (const f of t.foreignKeys) f.table = renames.get(f.table) || f.table;
+    }
+    const names = this.project.tables.map((t) => t.name.toLowerCase());
+    if (new Set(names).size !== names.length)
+      this.project.errors.push('Hay nombres de salida duplicados.');
+    this.project.errors.push(...relationshipProblems(this.project.tables));
     this.beforeTables = this.results
       .filter((r) => !this.filter || r.source.name === this.filter)
       .map((r) => r.source);
@@ -160,11 +274,12 @@ export class App implements OnDestroy {
       const table = structuredClone(source);
       this.progress = `Analizando ${table.name} · ${results.length + 1}/${tables.length}`;
       this.cdr.markForCheck();
+      table.review = structuredClone(this.decisions[table.name] || {});
       results.push((await this.worker.run({ type: 'automatic', table })) as AutomaticResult);
     }
     if (id !== this.request) return;
     this.results = results;
-    this.selected = 0;
+    this.selected = Math.min(this.selected, results.length - 1);
     this.filter = '';
     this.refreshProject();
   }
@@ -195,6 +310,16 @@ export class App implements OnDestroy {
       if (!response.ok) throw Error(data.error || 'No se pudo completar la lectura.');
       if (!Array.isArray(data.tables) || !data.tables.length)
         throw Error('No hay tablas para analizar.');
+      const fingerprint = fromServer
+        ? 'server:' + this.connection.server + ':' + this.connection.database
+        : this.sql;
+      if (fingerprint !== this.lastInput) {
+        this.decisions = {};
+        this.outputNames = {};
+        this.reviewDirty = false;
+        this.lastInput = fingerprint;
+      }
+      this.sources = structuredClone(data.tables);
       await this.analyzeTables(data.tables, id);
       if (id !== this.request) return;
       if (fromServer) {
@@ -222,9 +347,22 @@ export class App implements OnDestroy {
   download(kind: 'sql' | 'svg' | 'mmd' | 'json', before = false) {
     if (!this.results.length || (!before && kind !== 'json' && this.exportErrors.length)) return;
     const tables = before ? this.results.map((r) => r.source) : this.project.tables;
+    if (
+      kind === 'sql' &&
+      !before &&
+      (!this.outputSchema.trim() ||
+        this.outputSchema.length > 128 ||
+        this.sources.some(
+          (t) =>
+            (t.sqlName?.at(-2) || 'dbo').toLowerCase() === this.outputSchema.trim().toLowerCase(),
+        ))
+    ) {
+      this.error = 'Indica un esquema de destino separado del origen.';
+      return;
+    }
     const content =
       kind === 'sql'
-        ? exportSQL(tables)
+        ? exportSQL(tables, before ? {} : { schema: this.outputSchema.trim() })
         : kind === 'svg'
           ? exportSVG(tables)
           : kind === 'mmd'
@@ -236,7 +374,7 @@ export class App implements OnDestroy {
                   results: this.results,
                   project: this.project,
                 },
-                null,
+                (key, value) => (key === 'sampleRows' ? undefined : value),
                 2,
               );
     const url = URL.createObjectURL(

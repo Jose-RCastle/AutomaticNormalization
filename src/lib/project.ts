@@ -1,4 +1,5 @@
 import { Table } from './models';
+import { relationshipProblems } from './validation';
 
 export interface ProjectModel {
   tables: Table[];
@@ -100,7 +101,7 @@ export function assembleProject(
   return {
     tables,
     warnings: [...new Set(warnings)],
-    errors: [...new Set(errors)],
+    errors: [...new Set([...errors, ...relationshipProblems(tables)])],
     completed: sources.filter((source) => results.get(source.name)?.length).length,
   };
 }

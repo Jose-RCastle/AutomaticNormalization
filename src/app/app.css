@@ -603,3 +603,68 @@ footer {
     animation: none;
   }
 }
+
+.review-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 20px;
+  margin: 20px 0;
+  font-size: 12px;
+}
+.review-card h2 {
+  font-size: 18px;
+}
+.review-card h3 {
+  margin-top: 22px;
+}
+.review-card select[multiple] {
+  min-height: 120px;
+}
+.review-card button {
+  margin: 8px 0;
+}
+.prerequisites {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.prerequisites > div {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 12px;
+}
+.prerequisites span,
+.prerequisites small {
+  display: block;
+  color: #666;
+}
+.rule-list {
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid #eee;
+  margin: 12px 0;
+}
+.rule-row {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+.rule-row input {
+  flex-shrink: 0;
+}
+.rule-row small {
+  color: #777;
+}
+.list-choice {
+  padding: 12px;
+  background: #fafafa;
+  margin: 10px 0;
+}
+.review-card > label {
+  margin: 10px 0;
+}

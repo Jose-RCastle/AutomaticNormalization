@@ -129,7 +129,7 @@ def profile(table, rows, total=None):
                     if any(set(fd['left']).issubset(left) and fd['right'] == [right] for fd in observed):
                         continue
                     if all(len({r[right] for r in group}) == 1 for group in buckets.values()):
-                        observed.append({'left': list(left), 'right': [right]})
+                        observed.append({'left': list(left), 'right': [right], 'evidence': {'rows': len(rows), 'groups': len(buckets), 'repeatedGroups': sum(len(g) > 1 for g in buckets.values())}})
             if limited:
                 break
     list_candidates = []
@@ -140,10 +140,12 @@ def profile(table, rows, total=None):
                 continue
             values = [v.strip() for parts in split_values for v in parts]
             email = all(re.fullmatch(r'[^\s@,;|]+@[^\s@,;|]+\.[^\s@,;|]+', v) for v in values)
-            phone = all(re.fullmatch(r'[+\d() .-]+', v) and 7 <= len(re.sub(r'\D', '', v)) <= 15 for v in values)
+            phone = all(re.fullmatch(r'[+\d() .-]+', v) and 1 <= len(re.sub(r'\D', '', v)) <= 15 for v in values)
             if email or phone:
                 list_candidates.append({'column': name, 'kind': 'correos' if email else 'teléfonos', 'separator': separator})
+    key_candidates = [[n] for n in names if len(rows) > 1 and not nulls[n] and len({r[n] for r in rows}) == len(rows)]
     return {'rowCount': len(rows), 'totalRows': total if total is not None else len(rows), 'sampled': total is not None and total > len(rows), 'searchLimited': limited, 'nulls': nulls,
+            'sampleRows': rows[:1000], 'keyCandidates': key_candidates,
             'listCandidates': list_candidates,
             'duplicateRows': len(rows) - len({tuple(row[n] for n in names) for row in rows}),
             'observedRules': observed,
@@ -181,14 +183,48 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
     if dialect not in ('tsql', 'postgres', 'mysql', 'sqlite'):
         raise ValueError('Dialecto SQL desconocido.')
     chars, lines = list(sql), sql.splitlines()
+    boundaries = [0]
     tokens = sqlglot.tokenize(sql, read=dialect)
     for token in tokens:
         if token.text.upper() == 'GO' and re.fullmatch(r'\s*GO\s*(?:--.*)?', lines[token.line - 1], re.I):
+            boundaries.extend([token.start,token.end+1])
             chars[token.start:token.end + 1] = ' ' * (token.end - token.start + 1)
         if token.text.upper() in ('CLUSTERED', 'NONCLUSTERED') and token.token_type.name not in ('IDENTIFIER', 'STRING', 'NATIONAL_STRING'):
             chars[token.start:token.end + 1] = ' ' * (token.end - token.start + 1)
-    statements = sqlglot.parse(''.join(chars), read=dialect, error_level=ErrorLevel.RAISE)
-    tables, inserts, alters, indexes, commands, warnings = {}, [], [], [], [], []
+    prepared=''.join(chars)
+    boundaries.append(len(prepared))
+    statements, warnings = [], []
+    for start,end in zip(boundaries,boundaries[1:]):
+        batch=prepared[start:end]
+        meaningful=re.sub(r'/\*.*?\*/|--[^\n]*',' ',batch,flags=re.S).strip()
+        if not meaningful:
+            continue
+        if re.match(r'CREATE\s+(?:OR\s+ALTER\s+)?(?:TRIGGER|PROC(?:EDURE)?|FUNCTION|VIEW)\b',meaningful,re.I):
+            warnings.append('Módulo omitido (no se ejecuta ni se transforma): '+meaningful[:100])
+            continue
+        try:
+            statements.extend(sqlglot.parse(batch, read=dialect,error_level=ErrorLevel.RAISE))
+        except sqlglot.errors.ParseError:
+            # Recover independent statements; never discover DDL inside a module body.
+            parts=sqlglot.tokenize(batch,read=dialect)
+            offset=0;depth=0;chunks=[]
+            for token in parts:
+                if token.text.upper()=='BEGIN':depth+=1
+                elif token.text.upper()=='END':depth=max(0,depth-1)
+                if token.token_type.name=='SEMICOLON' and not depth:
+                    chunks.append(batch[offset:token.end+1]);offset=token.end+1
+            chunks.append(batch[offset:])
+            recovered=False
+            for chunk in chunks:
+                if not chunk.strip():continue
+                try:
+                    found=sqlglot.parse(chunk,read=dialect,error_level=ErrorLevel.RAISE)
+                    statements.extend(found);recovered=recovered or any(isinstance(s,exp.Create) and s.args.get('kind')=='TABLE' for s in found if s)
+                except sqlglot.errors.ParseError:
+                    warnings.append('Sentencia no interpretada: '+chunk.strip()[:160])
+            if not recovered and len(chunks)==1:
+                warnings.append('Lote no interpretado; revisa su sintaxis y formato.')
+    tables, inserts, alters, indexes, commands = {}, [], [], [], []
     for statement in statements:
         if statement is None:
             continue
@@ -218,8 +254,23 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             warnings.append(f'Instrucción omitida: {statement.key}. Solo se analizan estructuras e INSERT literales.')
         elif isinstance(statement, (exp.Select, exp.Transaction, exp.Commit, exp.Rollback)):
             warnings.append(f'Instrucción {statement.key} omitida; no modifica la estructura analizada.')
+        elif isinstance(statement,exp.If) and re.search(r'OBJECT_ID\s*\(',statement.sql(dialect='tsql'),re.I) and any(statement.find_all(exp.Drop)):
+            warnings.append('Limpieza condicional IF OBJECT_ID / DROP omitida: se analiza el CREATE posterior sin ejecutar cambios.')
+            for drop in statement.find_all(exp.Drop):
+                for target in drop.args.get('tables') or [drop.this]:
+                    if isinstance(target,exp.Table) and table_name(target).casefold() in tables:
+                        tables[table_name(target).casefold()]['issues'].append('DROP condicional posterior al CREATE: revisa el estado final de esta tabla.')
+        elif isinstance(statement,exp.Drop):
+            for target in statement.args.get('tables') or [statement.this]:
+                if not isinstance(target,exp.Table):
+                    warnings.append('DROP no ejecutado: '+statement.sql(dialect='tsql'));continue
+                name=table_name(target)
+                if name.casefold() in tables:
+                    tables[name.casefold()]['issues'].append('DROP posterior al CREATE: la estructura final requiere revisión; no se ejecutó la eliminación.')
+                else:
+                    warnings.append('DROP previo al CREATE omitido sin ejecutar cambios: '+name)
         else:
-            raise ValueError(f'Instrucción no soportada para análisis seguro: {statement.sql(dialect="tsql")[:100]}')
+            warnings.append(f'Instrucción no ejecutada ni analizada: {statement.sql(dialect="tsql")[:150]}')
     if not tables:
         raise ValueError('No se encontraron tablas CREATE TABLE.')
     if len(tables) > 1000:
@@ -236,7 +287,7 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             elif isinstance(action, exp.ColumnDef):
                 add_column(table, action)
             else:
-                raise ValueError(f'ALTER no soportado: {action.sql(dialect="tsql")}')
+                table['issues'].append(f'ALTER no interpretado modifica esta tabla: {action.sql(dialect="tsql")}. Revisa su estructura antes de transformar.')
     for statement in commands:
         raw = statement.sql(dialect='tsql')
         if re.search(r'\b(?:NO)?CHECK\s+CONSTRAINT\b', raw, re.I):

@@ -17,3 +17,5 @@
 La conexión no es necesaria para normalizar archivos. Sí permite analizar registros que no estén incluidos en un archivo SQL. Ni SQL Server ni SQLGlot pueden conocer reglas semánticas que la entrada no expresa. Se mantiene esa distinción en la aplicación.
 
 El PDF admite transformar estructuras, por lo que no se ejecutan cambios en la base conectada. La conexión y la ejecución del DDL deben verificarse en la instalación de destino; una descarga de SQL no es una migración completada.
+
+Las dependencias compuestas quedan como sugerencias y las simples requieren confirmación para exportar. El formulario permite declarar reglas en vivo, confirmar claves y listas y renombrar resultados. El SQL usa un esquema destino separado, restricciones nombradas y validación de ciclos/duplicados; el comprobador `sql:validate` necesita un SQL Server accesible y su ejecución real sigue pendiente en este entorno.

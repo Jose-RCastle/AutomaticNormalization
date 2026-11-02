@@ -19,7 +19,8 @@
     "test:sql": ".venv/bin/python -m unittest discover -s python -p \"test_*.py\"",
     "db:local": "node scripts/local-sql-server.mjs",
     "api:local": "node --env-file=.env.sqlserver.local --import tsx server/index.ts",
-    "dev:local": "concurrently -k \"npm run api:local\" \"npm start -- --host 0.0.0.0 --proxy-config proxy.conf.json\""
+    "dev:local": "concurrently -k \"npm run api:local\" \"npm start -- --host 0.0.0.0 --proxy-config proxy.conf.json\"",
+    "sql:validate": "node --env-file-if-exists=.env --env-file-if-exists=.env.sqlserver.local scripts/validate-sql-server.mjs"
   },
   "private": true,
   "packageManager": "npm@11.9.0",

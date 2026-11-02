@@ -1,11 +1,39 @@
 import dagre from '@dagrejs/dagre';
 import { ForeignKey, Table } from './models';
+import { relationshipProblems } from './validation';
 
 const quote = (name: string) => '[' + name.replace(/]/g, ']]') + ']';
 const literal = (value: string) => "N'" + value.replace(/'/g, "''") + "'";
 const parts = (table: Table) => table.sqlName || table.name.split('.');
 const qualified = (table: Table) => parts(table).map(quote).join('.');
-export function exportSQL(tables: Table[]): string {
+export function exportSQL(input: Table[], options: { schema?: string } = {}): string {
+  const problems = relationshipProblems(input);
+  if (problems.length) throw Error(problems.join(' '));
+  const tables = structuredClone(input);
+  if (options.schema) {
+    const used = new Set<string>(),
+      names = new Map<string, string>();
+    for (const t of tables) {
+      let name = parts(t).at(-1)!;
+      if (used.has(name.toLowerCase())) name = parts(t).join('_');
+      let candidate = name,
+        i = 2;
+      while (used.has(candidate.toLowerCase())) candidate = name + '_' + i++;
+      used.add(candidate.toLowerCase());
+      names.set(t.name, options.schema + '.' + candidate);
+      t.sqlName = [options.schema, candidate];
+    }
+    for (const t of tables) {
+      t.name = names.get(t.name)!;
+      t.foreignKeys.forEach((f) => (f.table = names.get(f.table) || f.table));
+    }
+  }
+  const constraint = (prefix: string, table: Table, suffix: string) => {
+    const name = [prefix, parts(table).at(-1), suffix].filter(Boolean).join('_');
+    let hash = 2166136261;
+    for (const c of name) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619);
+    return name.length <= 128 ? name : name.slice(0, 115) + '_' + (hash >>> 0).toString(16);
+  };
   const schemas = [
     ...new Set(tables.flatMap((t) => (parts(t).length === 2 ? [parts(t)[0]] : []))),
   ].filter((n) => n.toLowerCase() !== 'dbo');
@@ -16,29 +44,52 @@ export function exportSQL(tables: Table[]): string {
         : `  ${quote(c.name)} ${c.type}${c.collation ? ' COLLATE ' + c.collation : ''}${c.identity ? ' ' + c.identity : ''} ${c.nullable ? 'NULL' : 'NOT NULL'}${c.default ? ' DEFAULT ' + c.default : ''}`,
     );
     if (table.primaryKey.length)
-      columns.push(`  PRIMARY KEY (${table.primaryKey.map(quote).join(', ')})`);
-    for (const key of table.uniqueKeys || [])
-      columns.push(`  UNIQUE (${key.map(quote).join(', ')})`);
-    for (const check of table.checks || []) columns.push(`  CHECK (${check.expression})`);
+      columns.push(
+        `  CONSTRAINT ${quote(constraint('PK', table, ''))} PRIMARY KEY (${table.primaryKey.map(quote).join(', ')})`,
+      );
+    for (const [i, key] of (table.uniqueKeys || []).entries())
+      columns.push(
+        `  CONSTRAINT ${quote(constraint('UQ', table, String(i + 1)))} UNIQUE (${key.map(quote).join(', ')})`,
+      );
+    for (const [i, check] of (table.checks || []).entries())
+      columns.push(
+        `  CONSTRAINT ${quote(constraint('CK', table, String(i + 1)))} CHECK (${check.expression})`,
+      );
     return `CREATE TABLE ${qualified(table)} (\n${columns.join(',\n')}\n);`;
   });
   const references = tables.flatMap((table) =>
-    table.foreignKeys.map((f) => {
+    table.foreignKeys.map((f, index) => {
       const target = tables.find((t) => t.name === f.table);
       const actions = `${f.onDelete ? ' ON DELETE ' + f.onDelete : ''}${f.onUpdate ? ' ON UPDATE ' + f.onUpdate : ''}`;
-      return `ALTER TABLE ${qualified(table)} ADD FOREIGN KEY (${f.columns.map(quote).join(', ')}) REFERENCES ${target ? qualified(target) : f.table.split('.').map(quote).join('.')} (${f.references.map(quote).join(', ')})${actions};`;
+      return `ALTER TABLE ${qualified(table)} ADD CONSTRAINT ${quote(constraint('FK', table, (target ? parts(target).at(-1) : 'ref') + '_' + (index + 1)))} FOREIGN KEY (${f.columns.map(quote).join(', ')}) REFERENCES ${target ? qualified(target) : f.table.split('.').map(quote).join('.')} (${f.references.map(quote).join(', ')})${actions};`;
     }),
   );
   return (
     [
-      '-- SQL Server: estructuras normalizadas. No modifica las tablas de origen ni migra registros.',
+      `-- SQL Server: estructuras propuestas para un destino vacío${options.schema ? ' en el esquema ' + options.schema : ''}. No migra registros.`,
       '-- Revisar las reglas observadas y los cambios de nulabilidad antes de migrar datos.',
       ...tables.flatMap((t) => (t.warnings || []).map((w) => '-- ' + w.replace(/[\r\n]/g, ' '))),
+      ...tables.flatMap((t) =>
+        (t.observedUniqueKeys || []).map(
+          (k) =>
+            '-- ' +
+            t.name +
+            ': observado, único en la muestra (' +
+            k.join(', ') +
+            '); no se activa UNIQUE sin confirmación.',
+        ),
+      ),
+      'SET XACT_ABORT ON;\nBEGIN TRANSACTION;',
+      ...tables.map(
+        (t) =>
+          `IF OBJECT_ID(${literal(qualified(t))}) IS NOT NULL THROW 50001, N'El destino debe estar vacío; ya existe una tabla de salida.', 1;`,
+      ),
       ...schemas.map(
         (n) => `IF SCHEMA_ID(${literal(n)}) IS NULL EXEC(${literal('CREATE SCHEMA ' + quote(n))});`,
       ),
       ...definitions,
       ...references,
+      'COMMIT TRANSACTION;',
     ].join('\n\n') + '\n'
   );
 }

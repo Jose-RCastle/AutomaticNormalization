@@ -8,6 +8,16 @@ async function paste(page: import('@playwright/test').Page, sql: string) {
   await page.locator('#sql').fill(sql);
   await page.getByRole('button', { name: 'Analizar y normalizar' }).click();
 }
+async function approve(page: import('@playwright/test').Page, technical = false) {
+  await expect(page.locator('.review-card').first()).toBeVisible();
+  await page.getByLabel('Confirmo valores atómicos', { exact: false }).check();
+  await page.getByLabel('Confirmo que las reglas declaradas', { exact: false }).check();
+  await page.getByRole('button', { name: 'Confirmar simples recomendadas de esta tabla' }).click();
+  if (technical)
+    await page.getByRole('button', { name: 'Confirmar creación de clave técnica' }).click();
+  await page.getByRole('button', { name: 'Aplicar decisiones y recalcular' }).click();
+  await expect(page.getByRole('button', { name: 'Descargar SQL', exact: true })).toBeEnabled();
+}
 test('datos aportados generan comparación antes/después y descargas', async ({ page }) => {
   const name = tableName();
   const rows = Array.from(
@@ -20,7 +30,7 @@ test('datos aportados generan comparación antes/después y descargas', async ({
   await expect(page.locator('.result-heading')).toContainText('SQL pegado');
   await expect(page.locator('.result-heading')).toContainText('SQL Server (tsql)');
   await expect(page.locator('.badge')).toContainText('observadas');
-  await expect(page.getByRole('button', { name: 'Descargar SQL', exact: true })).toBeEnabled();
+  await approve(page);
   await expect(page.locator('.before img')).toHaveJSProperty('complete', true);
   await expect(page.locator('.after img')).toHaveJSProperty('complete', true);
   await page.getByRole('button', { name: 'Tablas', exact: true }).click();
@@ -64,7 +74,7 @@ test('texto con comas y tabla sin clave; error SQL conserva el resultado previo'
     page,
     `CREATE TABLE ${name}(Direccion VARCHAR(80)); INSERT INTO ${name} VALUES('Calle 1, casa 2');`,
   );
-  await expect(page.getByRole('button', { name: 'Descargar SQL', exact: true })).toBeEnabled();
+  await approve(page, true);
   await page.getByRole('button', { name: 'Tablas', exact: true }).click();
   await expect(page.locator('.after article')).toContainText('__RowId');
   await paste(page, 'CREATE TABLE Rota(');
@@ -87,6 +97,7 @@ test('reglas adicionales son entrada del usuario y móvil conserva la comparaci�
     buffer: Buffer.from(JSON.stringify({ [name]: 'A -> B' })),
   });
   await expect(page.locator('.badge')).toContainText('declaradas');
+  await approve(page);
   await page.getByRole('button', { name: 'Tablas', exact: true }).click();
   await expect(page.locator('.after article')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

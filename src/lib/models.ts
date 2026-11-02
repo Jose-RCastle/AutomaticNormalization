@@ -30,11 +30,15 @@ export interface Table {
   checks?: { expression: string; columns: string[] }[];
   origin?: string;
   columnOrigins?: Record<string, string[]>;
+  observedUniqueKeys?: string[][];
+  listSource?: { column: string; separator: string };
 }
 export interface FD {
   left: string[];
   right: string[];
+  evidence?: { rows: number; groups: number; repeatedGroups: number };
 }
+export type SampleRow = Record<string, string | null>;
 export interface ImportDiagnostic {
   level: 'warning' | 'error';
   message: string;
