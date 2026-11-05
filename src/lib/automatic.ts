@@ -28,6 +28,8 @@ export interface ParsedTable extends Table {
     listCandidates?: { column: string; kind: string; separator: string }[];
     keyCandidates?: string[][];
     sampleRows?: SampleRow[];
+    comparisonRows?: SampleRow[];
+    comparisonIssues?: string[];
     observedRules: FD[];
     search: string;
   };
@@ -68,11 +70,18 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
     const table = structuredClone(source);
     const review = table.review || {};
     const rows = table.profile?.sampleRows || [];
+    const comparable = table.profile?.comparisonRows || rows;
+    const comparisonKnown = !table.profile?.comparisonIssues?.length;
+    result.pending.push(...(table.profile?.comparisonIssues || []));
+    if (table.profile && table.profile.rowCount > rows.length)
+      result.pending.push(
+        'Faltan registros del perfil para validar las decisiones. Vuelve a analizar la entrada.',
+      );
     if (review.primaryKey?.length) {
       if (review.primaryKey.some((n) => !table.columns.some((c) => c.name === n)))
         throw Error('La clave confirmada contiene una columna inexistente.');
       const seen = new Set<string>();
-      for (const row of rows) {
+      for (const row of comparisonKnown ? comparable : []) {
         const values = review.primaryKey.map((n) => row[n]);
         const id = JSON.stringify(values);
         if (values.some((v) => v == null) || seen.has(id))
@@ -130,7 +139,7 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
       if ([...rule.left, ...rule.right].some((n) => !table.columns.some((c) => c.name === n)))
         throw Error('Regla con columnas inexistentes.');
       const seen = new Map<string, string>();
-      for (const row of rows) {
+      for (const row of comparisonKnown ? comparable : []) {
         if ([...rule.left, ...rule.right].some((n) => row[n] == null)) continue;
         const left = JSON.stringify(rule.left.map((n) => row[n])),
           right = JSON.stringify(rule.right.map((n) => row[n]));
@@ -287,14 +296,18 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
       },
       {
         label: 'Filas duplicadas',
-        status: table.profile?.rowCount
-          ? table.profile.duplicateRows
-            ? 'failed'
-            : 'passed'
-          : 'unknown',
-        detail: table.profile?.rowCount
-          ? `${table.profile.duplicateRows} duplicadas en ${table.profile.rowCount} filas.`
-          : 'Sin registros.',
+        status: table.profile?.comparisonIssues?.length
+          ? 'unknown'
+          : table.profile?.rowCount
+            ? table.profile.duplicateRows
+              ? 'failed'
+              : 'passed'
+            : 'unknown',
+        detail: !comparisonKnown
+          ? 'La comparación de valores está pendiente; no se ha certificado la ausencia de duplicados.'
+          : table.profile?.rowCount
+            ? `${table.profile.duplicateRows} duplicadas en ${table.profile.rowCount} filas.`
+            : 'Sin registros.',
       },
     ];
     if (table.profile?.duplicateRows)
@@ -414,7 +427,7 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
     }
     const last = result.stages[2];
     if (last?.tables.length) {
-      const parentRows = rows.map((row, i) =>
+      const parentRows = comparable.map((row, i) =>
         Object.fromEntries(
           parent.columns.map((c) => [
             c.name,
@@ -425,14 +438,24 @@ export function automaticNormalization(source: ParsedTable): AutomaticResult {
         ),
       );
       result.verification = verifyJoin(
-        parentRows,
+        parentRows.slice(0, 1000),
         last.tables.filter((t) => !children.some((c) => c.name === t.name)),
         parent.columns.map((c) => c.name),
       );
+      if (parentRows.length > 1000 || table.profile?.sampled)
+        result.verification.message +=
+          ' Verificación limitada a las primeras 1000 filas disponibles; no certifica el conjunto completo.';
+      if (!comparisonKnown)
+        result.verification = {
+          status: 'unavailable',
+          rows: 0,
+          message:
+            'La reunión no se certifica mientras existan comparaciones o registros pendientes de validación.',
+        };
       for (const child of children) {
         const seen = (child.uniqueKeys || []).map(() => new Set<string>());
         for (let i = 0; i < rows.length; i++) {
-          const sourceRow = rows[i];
+          const sourceRow = comparable[i];
           const origins = Object.entries(child.columnOrigins || {});
           const values: SampleRow[] = child.listSource
             ? String(sourceRow[child.listSource.column] ?? '')

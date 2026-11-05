@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { projectRoot, sqlglotPython } from '../scripts/python-runtime';
 import { ParsedTable } from '../src/lib/automatic';
 
 function python(input: string, args: string[], signal?: AbortSignal): Promise<unknown> {
@@ -8,10 +8,8 @@ function python(input: string, args: string[], signal?: AbortSignal): Promise<un
       reject(Error('Análisis cancelado.'));
       return;
     }
-    const executable =
-      process.env['SQLGLOT_PYTHON'] ||
-      (existsSync('.venv/bin/python') ? '.venv/bin/python' : '.venv/Scripts/python.exe');
-    const child = spawn(executable, ['python/sql_analysis.py', ...args], {
+    const child = spawn(sqlglotPython(), ['-X', 'utf8', 'python/sql_analysis.py', ...args], {
+      cwd: projectRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let output = '',
@@ -63,8 +61,9 @@ export function parseWithSqlGlot(
   dialect = 'tsql',
   signal?: AbortSignal,
   rules?: Record<string, string>,
+  defaultCollation?: string,
 ) {
-  return python(JSON.stringify({ sql, dialect, rules }), ['--request'], signal);
+  return python(JSON.stringify({ sql, dialect, rules, defaultCollation }), ['--request'], signal);
 }
 export async function profileRecords(
   table: ParsedTable,

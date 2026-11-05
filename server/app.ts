@@ -32,6 +32,7 @@ export function createApp(configured = isConfigured, loadSchema = readSchema) {
           request.body.dialect || 'tsql',
           controller.signal,
           request.body.rules,
+          request.body.defaultCollation,
         ),
       );
     } catch (error) {

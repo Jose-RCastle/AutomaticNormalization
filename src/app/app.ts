@@ -24,6 +24,7 @@ export class App implements OnDestroy {
   private lastInput = '';
   sql = '';
   dialect = 'tsql';
+  defaultCollation = 'Latin1_General_100_CI_AS';
   busy = false;
   progress = '';
   error = '';
@@ -302,7 +303,12 @@ export class App implements OnDestroy {
                 includeData: this.includeData,
                 rules: this.domainRules,
               }
-            : { sql: this.sql, dialect: this.dialect, rules: this.domainRules },
+            : {
+                sql: this.sql,
+                dialect: this.dialect,
+                rules: this.domainRules,
+                defaultCollation: this.defaultCollation,
+              },
         ),
       });
       const data = await response.json();
@@ -312,7 +318,7 @@ export class App implements OnDestroy {
         throw Error('No hay tablas para analizar.');
       const fingerprint = fromServer
         ? 'server:' + this.connection.server + ':' + this.connection.database
-        : this.sql;
+        : JSON.stringify([this.sql, this.dialect, this.defaultCollation]);
       if (fingerprint !== this.lastInput) {
         this.decisions = {};
         this.outputNames = {};
@@ -374,7 +380,8 @@ export class App implements OnDestroy {
                   results: this.results,
                   project: this.project,
                 },
-                (key, value) => (key === 'sampleRows' ? undefined : value),
+                (key, value) =>
+                  key === 'sampleRows' || key === 'comparisonRows' ? undefined : value,
                 2,
               );
     const url = URL.createObjectURL(

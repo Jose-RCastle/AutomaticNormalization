@@ -39,6 +39,26 @@
       </button>
     </div>
     <div class="input-body">
+      @if (inputMode !== 'server') {
+        <label
+          >Intercalación de texto cuando el SQL no declara COLLATE
+          <select [(ngModel)]="defaultCollation" [disabled]="busy">
+            <option value="Latin1_General_100_CI_AS">
+              Latin1_General_100_CI_AS · ignora mayúsculas
+            </option>
+            <option value="Latin1_General_100_CS_AS">
+              Latin1_General_100_CS_AS · distingue mayúsculas
+            </option>
+            <option value="Latin1_General_100_BIN2">
+              Latin1_General_100_BIN2 · comparación binaria
+            </option>
+          </select>
+        </label>
+        <p class="subtle">
+          Elige la intercalación del destino; también se incluye en el SQL exportado. Las
+          comparaciones que requieren el motor quedan pendientes de validación.
+        </p>
+      }
       @if (inputMode === 'file') {
         <div class="upload">
           <span class="file-icon" aria-hidden="true">.sql</span>

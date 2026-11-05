@@ -1,4 +1,23 @@
-import { SampleRow, Table } from './models';
+import { Column, SampleRow, Table } from './models';
+
+export function compatibleReferenceColumns(left: Column, right: Column) {
+  const signature = (column: Column) => {
+    let type = column.type
+      .toUpperCase()
+      .replace(/\s+/g, '')
+      .replace(/^INTEGER\b/, 'INT')
+      .replace(/^NUMERIC\b/, 'DECIMAL');
+    if (type === 'DECIMAL') type = 'DECIMAL(18,0)';
+    type = type.replace(/^DECIMAL\((\d+)\)$/, 'DECIMAL($1,0)');
+    return type.replace(/^(N?VARCHAR|N?CHAR|VARBINARY|BINARY)\(\d+\)$/, '$1');
+  };
+  if (signature(left) !== signature(right)) return false;
+  return (
+    !/^(N?VARCHAR|N?CHAR|TEXT|NTEXT)\b/i.test(left.type) ||
+    (left.collation || '').toUpperCase() === (right.collation || '').toUpperCase()
+  );
+}
+
 export function relationshipProblems(tables: Table[]) {
   const errors: string[] = [];
   for (const t of tables) {
@@ -7,8 +26,33 @@ export function relationshipProblems(tables: Table[]) {
       const id = JSON.stringify([f.columns, f.table, f.references]);
       if (seen.has(id)) errors.push(`${t.name}: FK duplicada a ${f.table}.`);
       seen.add(id);
+      const target = tables.find((other) => other.name === f.table);
+      if (!target || !f.columns.length || f.columns.length !== f.references.length) {
+        errors.push(`${t.name}: FK incompleta o destino inexistente: ${f.table}.`);
+        continue;
+      }
+      const key = [target.primaryKey, ...(target.uniqueKeys || [])].some(
+        (k) => k.length === f.references.length && k.every((n) => f.references.includes(n)),
+      );
+      if (!key) errors.push(`${t.name}: la FK a ${f.table} no referencia una clave.`);
+      f.columns.forEach((name, i) => {
+        const local = t.columns.find((c) => c.name === name);
+        const remote = target.columns.find((c) => c.name === f.references[i]);
+        if (!local || !remote || !compatibleReferenceColumns(local, remote))
+          errors.push(
+            `${t.name}: FK a ${f.table} con columnas, tipos o intercalaciones incompatibles.`,
+          );
+        if (local && (f.onDelete === 'SET NULL' || f.onUpdate === 'SET NULL') && !local.nullable)
+          errors.push(`${t.name}: SET NULL requiere columnas nullable en la FK.`);
+      });
     }
   }
+  return [...new Set(errors)];
+}
+
+/** A cycle is legal SQL and says nothing about normal form; report it as advice. */
+export function relationshipWarnings(tables: Table[]) {
+  const errors: string[] = [];
   const graph = new Map(tables.map((t) => [t.name, t.foreignKeys.map((f) => f.table)]));
   const active = new Set<string>(),
     done = new Set<string>();
@@ -17,7 +61,7 @@ export function relationshipProblems(tables: Table[]) {
       errors.push(
         'Ciclo de FK: ' +
           [...path.slice(path.indexOf(name)), name].join(' → ') +
-          '. Revisa las reglas y la estrategia de carga antes de exportar.',
+          '. Planifica el orden de carga y revisa las acciones en cascada en SQL Server.',
       );
       return;
     }

@@ -36,7 +36,7 @@ export function firstNormalForm(table: Table, group: string[]): Table[] {
     columns: [
       ...table.columns
         .filter((c) => table.primaryKey.includes(c.name))
-        .map((c) => ({ name: c.name, type: c.type, nullable: false })),
+        .map((c) => ({ name: c.name, type: c.type, nullable: false, collation: c.collation })),
       { name: position, type: 'INT', nullable: false },
       {
         name: value,

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { automaticNormalization, ParsedTable } from '../src/lib/automatic';
 import { recommendedRules } from '../src/lib/review';
-import { relationshipProblems, verifyJoin } from '../src/lib/validation';
+import { relationshipProblems, relationshipWarnings, verifyJoin } from '../src/lib/validation';
 import { exportSQL } from '../src/lib/exporters';
 import { assembleProject } from '../src/lib/project';
 const table = (names: string[], key: string[]): ParsedTable => ({
@@ -57,13 +57,17 @@ test('equivalencia en una muestra no activa UNIQUE inversos ni ciclos', () => {
     result.stages[2].tables.every((t) => !(t.uniqueKeys || []).some((k) => k.includes('Label'))),
   );
 });
-test('FK cíclicas o duplicadas impiden exportar; destino separado y nombres explícitos', () => {
+test('FK cíclicas válidas avisan sobre la carga; las duplicadas impiden exportar', () => {
   const a = table(['Id', 'Other'], ['Id']),
     b = { ...table(['Id', 'Other'], ['Id']), name: 'B' };
   a.foreignKeys = [{ columns: ['Other'], table: 'B', references: ['Id'] }];
   b.foreignKeys = [{ columns: ['Other'], table: 'R', references: ['Id'] }];
-  assert.ok(relationshipProblems([a, b]).some((p) => p.includes('Ciclo')));
-  assert.throws(() => exportSQL([a, b]), /Ciclo/);
+  assert.ok(relationshipWarnings([a, b]).some((p) => p.includes('Ciclo')));
+  assert.deepEqual(relationshipProblems([a, b]), []);
+  assert.doesNotThrow(() => exportSQL([a, b]));
+  a.foreignKeys.push(structuredClone(a.foreignKeys[0]));
+  assert.throws(() => exportSQL([a, b]), /duplicada/);
+  a.foreignKeys.pop();
   b.foreignKeys = [];
   const sql = exportSQL([a, b], { schema: 'norm' });
   assert.match(sql, /CREATE TABLE \[norm\]\.\[R\]/);

@@ -41,7 +41,12 @@ test('datos aportados generan comparación antes/después y descargas', async ({
     await page.getByRole('button', { name, exact: true }).click();
     const download = await pending;
     expect(await download.failure()).toBeNull();
-    expect(readFileSync((await download.path())!, 'utf8').length).toBeGreaterThan(100);
+    const content = readFileSync((await download.path())!, 'utf8');
+    expect(content.length).toBeGreaterThan(100);
+    if (name === 'Informe JSON') {
+      expect(content).not.toContain('"sampleRows"');
+      expect(content).not.toContain('"comparisonRows"');
+    }
   }
   await page.getByRole('button', { name: 'Diagrama', exact: true }).click();
   await page.screenshot({ path: '/tmp/normalizadb-comparacion.png', fullPage: true });
@@ -102,4 +107,31 @@ test('reglas adicionales son entrada del usuario y móvil conserva la comparaci�
   await expect(page.locator('.after article')).toHaveCount(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '/tmp/normalizadb-movil.png', fullPage: true });
+});
+
+test('prerrequisitos inválidos bloquean exportación y la intercalación seleccionada cambia la igualdad', async ({
+  page,
+}) => {
+  await page.goto('/');
+  for (const sql of [
+    'CREATE TABLE T(Id INT PRIMARY KEY, N INT NOT NULL DEFAULT 5); INSERT INTO T VALUES(1,NULL);',
+    'CREATE TABLE P(Id INT PRIMARY KEY); CREATE TABLE H(Id INT PRIMARY KEY, Pid INT REFERENCES P(Id)); INSERT INTO P VALUES(1); INSERT INTO H VALUES(1,999);',
+    'CREATE TABLE P(Id INT PRIMARY KEY); CREATE TABLE H(Id INT PRIMARY KEY, Pid VARCHAR(10) REFERENCES P(Id));',
+    "CREATE TABLE T(C VARCHAR(10) PRIMARY KEY); INSERT INTO T VALUES('a'),('A');",
+  ]) {
+    await paste(page, sql);
+    await expect(page.locator('.result-heading')).toContainText('SQL pegado');
+    await expect(page.getByRole('button', { name: 'Descargar SQL', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Analizar y normalizar' })).toBeEnabled();
+  }
+  await page
+    .getByLabel('Intercalación de texto cuando el SQL no declara COLLATE')
+    .selectOption('Latin1_General_100_CS_AS');
+  await paste(page, "CREATE TABLE T(C VARCHAR(10) PRIMARY KEY); INSERT INTO T VALUES('a'),('A');");
+  await approve(page);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Descargar SQL', exact: true }).click();
+  expect(readFileSync((await (await downloaded).path())!, 'utf8')).toContain(
+    'COLLATE Latin1_General_100_CS_AS',
+  );
 });

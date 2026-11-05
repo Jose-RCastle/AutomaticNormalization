@@ -4,7 +4,7 @@
 
 `server/app.ts` expone `/api/analyze-sql`, `/api/sql-server` y el endpoint heredado `/api/schema`. El SQL cargado nunca se ejecuta. `server/sqlglot.ts` ejecuta Python por stdin, sin shell, con cancelación y límite de tiempo. `python/sql_analysis.py` interpreta el AST de SQLGlot y construye tablas, restricciones y perfiles.
 
-La conexión real usa `mssql`, TLS validado y consultas fijas del catálogo. Las lecturas de registros usan identificadores escapados y TOP 10001 para distinguir una muestra de hasta 10000 filas. Regresan perfiles, restricciones, dependencias y hasta 1000 filas temporales para contrastar la reunión; los registros no se incluyen en el JSON descargado y las credenciales no regresan. El mismo perfilador Python procesa INSERT y registros reales.
+La conexión real usa `mssql`, TLS validado y consultas fijas del catálogo. Las lecturas de registros usan identificadores escapados y TOP 10001 para distinguir una muestra de hasta 10000 filas. Regresan perfiles, restricciones, dependencias y hasta 10000 filas temporales para validar decisiones, con reunión limitada a 1000; los registros no se incluyen en el JSON descargado y las credenciales no regresan. El mismo perfilador Python procesa INSERT y registros reales.
 
 ## Normalización
 
@@ -30,4 +30,6 @@ El lector manual heredado se conserva en la biblioteca para regresiones. La ruta
 
 ## Revisión de evidencia
 
-`review.ts` distingue reglas declaradas/confirmadas de hipótesis. Solo simples canónicas se usan para una propuesta inicial; compuestas requieren aprobación. `validation.ts` comprueba FK duplicadas/ciclos y la reunión natural de las proyecciones en la muestra. La interfaz pide confirmación antes de emitir restricciones, ofrece claves observadas y separación de listas, y no presenta DDL sin datos/reglas como 3FN demostrada. La exportación usa un esquema separado, restricciones nombradas y control de colisiones.
+`review.ts` distingue reglas declaradas/confirmadas de hipótesis. Solo simples canónicas se usan para una propuesta inicial; compuestas requieren aprobación. `validation.ts` comprueba FK duplicadas, tipos e intercalaciones; los ciclos generan advertencias y la reunión natural de las proyecciones en la muestra. La interfaz pide confirmación antes de emitir restricciones, ofrece claves observadas y separación de listas, y no presenta DDL sin datos/reglas como 3FN demostrada. La exportación usa un esquema separado, restricciones nombradas y control de colisiones.
+
+`python/sql_values.py` centraliza la igualdad SQL admitida. El perfil transmite `sampleRows` originales y `comparisonRows` para validar claves, reglas y reuniones. Ambos campos se excluyen del informe JSON. `comparisonIssues` bloquea la exportación cuando falta evidencia o el motor es necesario para determinar la igualdad. `server/profile-integrity.ts` verifica referencias entre perfiles sin confundir ausencia en una muestra con un huérfano demostrado.

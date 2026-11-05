@@ -7,6 +7,7 @@ import time
 from decimal import Decimal, InvalidOperation
 import sqlglot
 from sqlglot import exp, ErrorLevel
+from sql_values import DEFAULT_COLLATION, TEXT, comparison_rows, compatible_types, record_issues
 
 MAX_ROWS = 10000
 
@@ -102,12 +103,14 @@ def value(node):
 
 
 def profile(table, rows, total=None):
+    original_rows = rows
+    rows, comparison_issues = comparison_rows(table, rows)
     names = [c['name'] for c in table['columns']]
     nulls = {name: sum(row[name] is None for row in rows) for name in names}
     observed = []
     # Explorar determinantes acotados es una ayuda empírica, nunca una prueba semántica.
     # Same profiler is used for file records and records read from SQL Server.
-    eligible = [n for n in names if not nulls[n] and len({r[n] for r in rows}) > 1]
+    eligible = [n for n in names if not comparison_issues and not nulls[n] and len({r[n] for r in rows}) > 1]
     deadline, visited, limited = time.monotonic() + 8, 0, False
     if len(rows) >= 3:
         for size in range(1, min(3, len(eligible)) + 1):
@@ -145,14 +148,18 @@ def profile(table, rows, total=None):
                 list_candidates.append({'column': name, 'kind': 'correos' if email else 'teléfonos', 'separator': separator})
     key_candidates = [[n] for n in names if len(rows) > 1 and not nulls[n] and len({r[n] for r in rows}) == len(rows)]
     return {'rowCount': len(rows), 'totalRows': total if total is not None else len(rows), 'sampled': total is not None and total > len(rows), 'searchLimited': limited, 'nulls': nulls,
-            'sampleRows': rows[:1000], 'keyCandidates': key_candidates,
+            'sampleRows': original_rows, 'comparisonRows': rows,
+            'comparisonIssues': comparison_issues, 'keyCandidates': [] if comparison_issues else key_candidates,
             'listCandidates': list_candidates,
-            'duplicateRows': len(rows) - len({tuple(row[n] for n in names) for row in rows}),
+            'duplicateRows': 0 if comparison_issues else len(rows) - len({tuple(row[n] for n in names) for row in rows}),
             'observedRules': observed,
             'search': f'Determinantes de hasta 3 atributos; {visited} combinaciones examinadas. Se excluyen NULL, constantes y determinantes únicos. ' + ('Búsqueda limitada por tiempo o presupuesto; pueden faltar reglas.' if limited else 'Las dependencias observadas describen los registros examinados, no garantizan los futuros.')}
 
 
 def check_rules(table, rows):
+    rows, limitations = comparison_rows(table, rows)
+    if limitations:
+        return
     lookup = {c['name'].casefold(): c['name'] for c in table['columns']}
     for rule in table.get('rules') or []:
         sides = re.split(r'->|→', rule)
@@ -176,7 +183,9 @@ def check_rules(table, rows):
             seen[determinant] = dependent
 
 
-def analyze_sql(sql, dialect='tsql', domain_rules=None):
+def analyze_sql(sql, dialect='tsql', domain_rules=None, default_collation=DEFAULT_COLLATION):
+    if not isinstance(default_collation, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,127}', default_collation):
+        raise ValueError('Intercalación predeterminada inválida.')
     if len(sql.encode('utf-8')) > 50 * 1024 * 1024:
         raise ValueError('El límite de entrada es 50 MiB.')
     # Tokenizar antes de quitar GO evita alterar literales y comentarios multilínea.
@@ -316,7 +325,12 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
                 target['uniqueKeys'].append(key)
                 continue
         warnings.append('Índice físico o filtrado no trasladado: ' + statement.sql(dialect='tsql'))
+    for table in tables.values():
+        for column in table['columns']:
+            if TEXT.match(column['type']):
+                column.setdefault('collation', default_collation)
     data = {name: [] for name in tables}
+    incomplete = set()
     totals = dict.fromkeys(tables, 0)
     for statement in inserts:
         target = statement.this
@@ -330,6 +344,7 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             raise ValueError('Lista de columnas INSERT inválida.')
         names = [lookup[n.casefold()] for n in names]
         if not isinstance(statement.expression, exp.Values):
+            incomplete.add(name)
             tables[name]['warnings'].append('INSERT SELECT no ejecutado: el diagnóstico de datos no incluye sus filas.')
             continue
         for row in statement.expression.expressions:
@@ -339,6 +354,7 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             try:
                 record.update(zip(names, map(value, row.expressions)))
             except ValueError:
+                incomplete.add(name)
                 tables[name]['warnings'].append('INSERT con expresiones no evaluables: fila excluida del perfil. Usa la conexión SQL Server para analizar sus valores reales.')
                 continue
             # Known identity/default values are interpreted without executing expressions.
@@ -352,11 +368,13 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
                     try:
                         record[c['name']] = value(sqlglot.parse_one(c['default'], read='tsql'))
                     except (ValueError, sqlglot.errors.ParseError):
-                        pass
+                        incomplete.add(name)
+                        tables[name]['issues'].append('DEFAULT no evaluable: no se puede comprobar el valor omitido sin SQL Server.')
             totals[name] += 1
             if len(data[name]) >= MAX_ROWS:
                 continue
             data[name].append(record)
+    compared = {key: comparison_rows(table, data[key]) for key, table in tables.items()}
     for key, table in tables.items():
         names = [c['name'] for c in table['columns']]
         if len(names) > 256 or len({n.casefold() for n in names}) != len(names):
@@ -372,19 +390,21 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
             if c['name'] in table['primaryKey']:
                 c['nullable'] = False
         for row in data[key]:
-            if any(not c['nullable'] and row[c['name']] is None and not c.get('computed') and not c.get('default') for c in table['columns']):
+            if any(not c['nullable'] and row[c['name']] is None and not c.get('computed') for c in table['columns']):
                 table['issues'].append('Hay NULL o columnas omitidas en atributos NOT NULL. Revisa los INSERT.')
         for k in [table['primaryKey'], *table['uniqueKeys']]:
             if not k:
                 continue
             seen = set()
-            for row in data[key]:
+            for row in ([] if compared[key][1] else compared[key][0]):
                 values = tuple(row[n] for n in k)
                 if values in seen:
                     table['issues'].append('Los INSERT contradicen una clave declarada.')
                 seen.add(values)
         table['issues'] = list(set(table['issues']))
         table['profile'] = profile(table, data[key], totals[key])
+        if key in incomplete:
+            table['profile']['comparisonIssues'].append('Hay filas o valores no evaluados; completa la entrada o lee los registros desde SQL Server.')
         if totals[key] > MAX_ROWS:
             table['warnings'].append(f'Perfil de las primeras {MAX_ROWS} de {totals[key]} filas literales. Las reglas son hipótesis de esa muestra.')
         table['profile']['possibleLists'] = [n for n in names if any(isinstance(row[n], str) and any(delimiter in row[n] for delimiter in [',', ';', '|']) for row in data[key])]
@@ -426,6 +446,28 @@ def analyze_sql(sql, dialect='tsql', domain_rules=None):
                 fk['columns'] = [lookup[n.casefold()] for n in fk['columns']]
             if len(fk['columns']) != len(fk['references']):
                 table['issues'].append('Referencia con distinta cantidad de columnas.')
+        for fk in table['foreignKeys']:
+            target_key = fk['table'].casefold()
+            target = tables.get(target_key)
+            if not target or len(fk['columns']) != len(fk['references']):
+                continue
+            local_cols = {c['name']: c for c in table['columns']}
+            target_cols = {c['name']: c for c in target['columns']}
+            if any(n not in local_cols for n in fk['columns']) or any(n not in target_cols for n in fk['references']):
+                continue
+            if any(not compatible_types(local_cols[a], target_cols[b]) for a,b in zip(fk['columns'], fk['references'])):
+                table['issues'].append('FK con tipos o intercalaciones incompatibles: ' + fk['table'])
+                continue
+            if compared[key][1] or compared[target_key][1]:
+                continue
+            parent_values = {tuple(row[n] for n in fk['references']) for row in compared[target_key][0]}
+            missing = any(all(row[n] is not None for n in fk['columns']) and tuple(row[n] for n in fk['columns']) not in parent_values for row in compared[key][0])
+            if missing:
+                if target_key in incomplete or totals[target_key] > MAX_ROWS:
+                    table['profile']['comparisonIssues'].append('No se puede verificar la FK a ' + fk['table'] + ': los registros del destino están incompletos.')
+                else:
+                    table['issues'].append('Registros huérfanos: FK sin fila de destino en ' + fk['table'])
+        table['issues'] = list(dict.fromkeys(table['issues']))
         table['warnings'] = list(dict.fromkeys(table['warnings']))
     label = {'tsql':'SQL Server (tsql)', 'mysql':'MySQL (mysql)', 'postgres':'PostgreSQL (postgres)', 'sqlite':'SQLite (sqlite)'}[dialect]
     return {'tables': list(tables.values()), 'warnings': warnings, 'dialect': dialect, 'parser': f'SQLGlot {sqlglot.__version__} · {label}'}
@@ -436,12 +478,13 @@ if __name__ == '__main__':
         raw = sys.stdin.read()
         if '--profile' in sys.argv:
             payload = json.loads(raw)
+            payload['table'].setdefault('issues', []).extend(record_issues(payload['table'], payload['rows']))
             check_rules(payload['table'], payload['rows'])
             output = profile(payload['table'], payload['rows'], payload.get('total'))
             output['issues'] = payload['table'].get('issues', [])
         elif '--request' in sys.argv:
             payload = json.loads(raw)
-            output = analyze_sql(payload['sql'], payload.get('dialect', 'tsql'), payload.get('rules'))
+            output = analyze_sql(payload['sql'], payload.get('dialect', 'tsql'), payload.get('rules'), payload.get('defaultCollation', DEFAULT_COLLATION))
         else:
             output = analyze_sql(raw, sys.argv[1] if len(sys.argv) > 1 else 'tsql')
         print(json.dumps(output, ensure_ascii=False))

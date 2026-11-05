@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { profileRecords } from './sqlglot';
 import { ParsedTable } from '../src/lib/automatic';
 import { tokenize } from '../src/lib/sql/lexer';
+import { validateProfileReferences } from './profile-integrity';
 
 interface ColumnRow {
   schemaName: string;
@@ -267,6 +268,7 @@ export async function readSchema(
           signal?.removeEventListener('abort', abort);
         }
       }
+    validateProfileReferences(tables);
     return tables;
   } finally {
     await pool.close();
